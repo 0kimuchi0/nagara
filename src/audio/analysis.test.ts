@@ -69,3 +69,11 @@ describe('BeatDetector', () => {
     expect(d.update(0.2, t)).toBe(false)
   })
 })
+
+describe('smooth guard', () => {
+  it('returns the target when tau is zero or negative (no NaN)', () => {
+    expect(smooth(0, 1, 0.016, 0, 0.4)).toBe(1)
+    expect(smooth(1, 0, 0.016, 0.08, 0)).toBe(0)
+    expect(smooth(0.5, 0.5, 0, 0, 0)).toBe(0.5)
+  })
+})

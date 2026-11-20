@@ -30,6 +30,7 @@ export function bandLevels(freq: Uint8Array, sampleRate: number, fftSize: number
 
 export function smooth(prev: number, target: number, dt: number, attack: number, release: number): number {
   const tau = target > prev ? attack : release
+  if (tau <= 0) return target
   return prev + (target - prev) * (1 - Math.exp(-dt / tau))
 }
 
