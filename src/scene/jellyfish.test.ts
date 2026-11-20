@@ -60,9 +60,7 @@ describe("Jellyfish", () => {
   it("y stays within 10%..70% of height, even under repeated beats", () => {
     const H = 800;
     const j = new Jellyfish({ width: 1200, height: H }, mulberry32(5));
-    let t = 0;
     for (let i = 0; i < 60 * 60; i++) {
-      t += DT;
       j.update(DT, { ...silent, beat: i % 20 === 0, speed: 1.5 });
       j.bodies.forEach((b) => {
         expect(b.y).toBeGreaterThanOrEqual(0.1 * H);
@@ -71,7 +69,6 @@ describe("Jellyfish", () => {
         expect(b.pulse).toBeLessThanOrEqual(1);
       });
     }
-    expect(t).toBeGreaterThan(0);
   });
 
   it("resize puts everyone inside the new bounds immediately", () => {
@@ -87,5 +84,32 @@ describe("Jellyfish", () => {
     });
     j.resize({ width: 500, height: 600 });
     expect(j.bodies.length).toBe(2);
+  });
+
+  it("steady beats do not pin jellyfish at the top; they settle back after beats stop", () => {
+    const H = 800;
+    const j = new Jellyfish({ width: 1200, height: H }, mulberry32(7));
+    const sum = j.bodies.map(() => 0);
+    const min = j.bodies.map(() => Infinity);
+    let n = 0;
+    for (let i = 0; i < 30 * 60; i++) {
+      j.update(DT, { ...silent, beat: i % 30 === 0 });
+      if (i >= 25 * 60) {
+        n++;
+        j.bodies.forEach((b, k) => {
+          sum[k] += b.y;
+          min[k] = Math.min(min[k], b.y);
+        });
+      }
+    }
+    j.bodies.forEach((_, k) => {
+      expect(min[k]).toBeGreaterThan(0.1 * H + 20);
+      expect(sum[k] / n).toBeGreaterThan(0.1 * H + 60);
+    });
+    run(j, 10);
+    j.bodies.forEach((b) => {
+      expect(b.y).toBeGreaterThan(0.25 * H);
+      expect(b.y).toBeLessThan(0.65 * H);
+    });
   });
 });

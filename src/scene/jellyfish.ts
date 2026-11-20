@@ -13,11 +13,14 @@ const KICK_TAU = 0.8;
 const SQUEEZE_HOLD = 0.2;
 const SQUEEZE_ATTACK = 0.06;
 const SQUEEZE_RELEASE = 0.5;
+/** 基準高さへ戻るばね定数 (1/s)。拍で上がっても沈んで戻る */
+const HOME_SPRING = 1.2;
 const TENTACLES = 5;
 
 interface Body {
   x: number;
   y: number;
+  homeY: number;
   vx: number;
   phase: number;
   driftPhase: number;
@@ -52,9 +55,11 @@ export class Jellyfish implements SceneElement {
   private make(): Body {
     const { width, height } = this.bounds;
     const dir = this.rng() < 0.5 ? -1 : 1;
+    const homeY = height * (0.35 + this.rng() * 0.25);
     return {
       x: width * (0.15 + this.rng() * 0.7),
-      y: height * (0.25 + this.rng() * 0.35),
+      y: homeY,
+      homeY,
       vx: dir * (8 + this.rng() * 12),
       phase: this.rng() * Math.PI * 2,
       driftPhase: this.rng() * Math.PI * 2,
@@ -81,6 +86,7 @@ export class Jellyfish implements SceneElement {
     for (const j of this.jellies) {
       j.x *= sx;
       j.y *= sy;
+      j.homeY *= sy;
     }
     const n = countFor(b);
     if (this.jellies.length > n) this.jellies.length = n;
@@ -109,7 +115,7 @@ export class Jellyfish implements SceneElement {
       j.pulse = clamp(base * 0.5 + j.squeeze, 0, 1);
 
       // ゆるい上下の漂い (拍の kick は上向き)
-      const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick;
+      const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick - (j.y - j.homeY) * HOME_SPRING;
       j.x += j.vx * step;
       j.y += vy * dt;
       if (j.x < 0) {
@@ -124,6 +130,7 @@ export class Jellyfish implements SceneElement {
   }
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
+    ctx.save();
     const glow = clamp(l.jellyGlow * 0.7 + this.volume * 0.4, 0, 1);
     const [r, g, b] = l.ray;
     const unit = Math.min(this.bounds.width, this.bounds.height) / 14;
@@ -169,5 +176,6 @@ export class Jellyfish implements SceneElement {
       ctx.strokeStyle = `rgba(255,255,255,${0.3 + 0.3 * glow})`;
       ctx.stroke();
     }
+    ctx.restore();
   }
 }
