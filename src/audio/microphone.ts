@@ -6,6 +6,7 @@ export interface MicSource {
 }
 
 const FFT_SIZE = 2048
+const RESUME_TIMEOUT_MS = 1000
 
 export async function startMicrophone(): Promise<MicSource> {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -16,7 +17,10 @@ export async function startMicrophone(): Promise<MicSource> {
   let ctx: AudioContext | null = null
   try {
     ctx = new AudioContext()
-    if (ctx.state === 'suspended') await ctx.resume()
+    if (ctx.state === 'suspended') await Promise.race([
+        ctx.resume(),
+        new Promise<void>((resolve) => setTimeout(resolve, RESUME_TIMEOUT_MS)),
+      ])
     const analyser = ctx.createAnalyser()
     analyser.fftSize = FFT_SIZE
     analyser.smoothingTimeConstant = 0.6

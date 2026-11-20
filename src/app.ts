@@ -36,13 +36,13 @@ export function startApp(canvas: HTMLCanvasElement): void {
   }
   applySize()
 
-  // 描画順：光の筋 → 浮遊物 → 海月 → 水草 → 底 → 泡
+  // 描画順：光の筋 → 浮遊物 → 海月 → 底 → 水草 → 泡
   const elements: SceneElement[] = [
     new LightRays(bounds, rng),
     new Particles(bounds, rng),
     new Jellyfish(bounds, rng),
-    new Plants(bounds, rng),
     new Floor(bounds, rng),
+    new Plants(bounds, rng),
     new Bubbles(bounds, rng),
   ]
   window.addEventListener('resize', () => {
@@ -66,6 +66,7 @@ export function startApp(canvas: HTMLCanvasElement): void {
 
   let last = performance.now()
   const frame = (nowMs: number) => {
+    requestAnimationFrame(frame)
     const dt = clampDt((nowMs - last) / 1000)
     last = nowMs
     const lighting = lightingAt(currentHour(new Date(), override))
@@ -97,8 +98,6 @@ export function startApp(canvas: HTMLCanvasElement): void {
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, bounds.width, bounds.height)
     for (const e of elements) e.draw(ctx, lighting)
-
-    requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
 }

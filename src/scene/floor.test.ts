@@ -21,7 +21,7 @@ describe("Floor", () => {
         expect(s.x).toBeGreaterThanOrEqual(0);
         expect(s.x + s.w).toBeLessThanOrEqual(w);
         expect(s.h).toBeGreaterThan(0);
-        expect(s.h).toBeLessThanOrEqual(h * 0.25);
+        expect(s.h).toBeLessThanOrEqual(h * 0.12);
       }
     };
     check(1200, 800);
