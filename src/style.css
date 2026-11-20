@@ -17,7 +17,8 @@ body.active { cursor: default; }
   transition: opacity 2s ease;
 }
 .prompt.dim { opacity: 0.35; }
-.prompt:hover { opacity: 0.9; }
+.prompt.idle { opacity: 0; pointer-events: none; }
+.prompt.dim:hover { opacity: 0.9; }
 .prompt.gone { opacity: 0; pointer-events: none; }
 
 .gear, .menu {

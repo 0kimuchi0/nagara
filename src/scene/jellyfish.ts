@@ -16,6 +16,10 @@ const SQUEEZE_RELEASE = 0.5;
 /** 基準高さへ戻るばね定数 (1/s)。拍で上がっても沈んで戻る */
 const HOME_SPRING = 1.2;
 const TENTACLES = 5;
+/** 傘どうしがこの倍率 x 傘の幅より近づくと、横方向に互いを押し離す */
+const SEPARATION = 1.5;
+/** 重なり率 1 のときの押し離し速度 (px/s) */
+const REPEL_SPEED = 120;
 
 interface Body {
   x: number;
@@ -45,19 +49,21 @@ export class Jellyfish implements SceneElement {
   constructor(b: Bounds, rng: () => number) {
     this.rng = rng;
     this.bounds = { ...b };
-    for (let i = 0; i < countFor(b); i++) this.jellies.push(this.make());
+    const n = countFor(b);
+    for (let i = 0; i < n; i++) this.jellies.push(this.make(i, n));
   }
 
   get bodies(): ReadonlyArray<{ x: number; y: number; pulse: number }> {
     return this.jellies;
   }
 
-  private make(): Body {
+  private make(index: number, total: number): Body {
     const { width, height } = this.bounds;
     const dir = this.rng() < 0.5 ? -1 : 1;
     const homeY = height * (0.35 + this.rng() * 0.25);
     return {
-      x: width * (0.15 + this.rng() * 0.7),
+      // 横方向に等間隔 + 少しのばらつき
+      x: width * (0.15 + 0.7 * ((index + 0.5 + (this.rng() - 0.5) * 0.4) / total)),
       y: homeY,
       homeY,
       vx: dir * (8 + this.rng() * 12),
@@ -70,6 +76,30 @@ export class Jellyfish implements SceneElement {
       squeezeHold: 0,
       pulse: 0,
     };
+  }
+
+  /** 傘の半幅 (px) */
+  private halfWidth(j: Body): number {
+    return (Math.min(this.bounds.width, this.bounds.height) / 14) * j.size * 1.1;
+  }
+
+  private separate(dt: number): void {
+    const unit = Math.min(this.bounds.width, this.bounds.height) / 14;
+    for (let a = 0; a < this.jellies.length; a++) {
+      for (let c = a + 1; c < this.jellies.length; c++) {
+        const p = this.jellies[a];
+        const q = this.jellies[c];
+        if (Math.abs(p.y - q.y) > unit * 3) continue;
+        const limit = SEPARATION * (this.halfWidth(p) + this.halfWidth(q));
+        const dx = q.x - p.x;
+        const dist = Math.abs(dx);
+        if (dist >= limit) continue;
+        const dir = dx === 0 ? (a % 2 === 0 ? 1 : -1) : Math.sign(dx);
+        const push = REPEL_SPEED * (1 - dist / limit) * dt;
+        p.x -= dir * push;
+        q.x += dir * push;
+      }
+    }
   }
 
   private clampBody(j: Body): void {
@@ -90,7 +120,7 @@ export class Jellyfish implements SceneElement {
     }
     const n = countFor(b);
     if (this.jellies.length > n) this.jellies.length = n;
-    while (this.jellies.length < n) this.jellies.push(this.make());
+    while (this.jellies.length < n) this.jellies.push(this.make(this.jellies.length, n));
     this.jellies.forEach((j) => this.clampBody(j));
   }
 
@@ -127,6 +157,8 @@ export class Jellyfish implements SceneElement {
       }
       j.y = clamp(j.y, height * Y_MIN, height * Y_MAX);
     }
+    this.separate(dt);
+    for (const j of this.jellies) j.x = clamp(j.x, 0, width);
   }
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {

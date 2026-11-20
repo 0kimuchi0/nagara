@@ -3,6 +3,8 @@ export interface MicSource {
   sampleRate: number
   fftSize: number
   stop(): void
+  /** 端末側でマイクが切れた (権限取り消し・デバイス抜去など) 時に呼ばれる */
+  onEnded(cb: () => void): void
 }
 
 const FFT_SIZE = 2048
@@ -12,7 +14,10 @@ export async function startMicrophone(): Promise<MicSource> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('getUserMedia is not supported')
   }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  const stream = await navigator.mediaDevices.getUserMedia({
+    // 音楽や音量差をそのまま拾うため、音声の自動処理は切る
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  })
   const stopTracks = () => stream.getTracks().forEach((t) => t.stop())
   let ctx: AudioContext | null = null
   try {
@@ -28,7 +33,8 @@ export async function startMicrophone(): Promise<MicSource> {
     const buf = new Uint8Array(analyser.frequencyBinCount)
     const audioCtx = ctx
     let stopped = false
-    return {
+    const endedCbs: Array<() => void> = []
+    const mic: MicSource = {
       read() {
         analyser.getByteFrequencyData(buf)
         return buf
@@ -41,7 +47,18 @@ export async function startMicrophone(): Promise<MicSource> {
         stopTracks()
         audioCtx.close().catch(() => {})
       },
+      onEnded(cb) {
+        endedCbs.push(cb)
+      },
     }
+    stream.getAudioTracks().forEach((t) =>
+      t.addEventListener('ended', () => {
+        if (stopped) return
+        mic.stop()
+        endedCbs.forEach((cb) => cb())
+      }),
+    )
+    return mic
   } catch (e) {
     stopTracks()
     ctx?.close().catch(() => {})

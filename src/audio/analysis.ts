@@ -36,6 +36,7 @@ export function smooth(prev: number, target: number, dt: number, attack: number,
 
 const AVG_TAU = 1
 const BEAT_RATIO = 1.4
+const BEAT_RISE = 0.1
 const BEAT_MIN_LEVEL = 0.3
 const BEAT_MIN_INTERVAL = 0.25
 
@@ -44,11 +45,17 @@ export class BeatDetector {
   private lastTime: number | null = null
   private lastBeat = -Infinity
 
+  reset(): void {
+    this.avg = 0
+    this.lastTime = null
+    this.lastBeat = -Infinity
+  }
+
   update(low: number, timeSec: number): boolean {
     const dt = this.lastTime === null ? 0 : Math.max(0, timeSec - this.lastTime)
     const avgBefore = this.lastTime === null ? low : this.avg
     const beat =
-      low > avgBefore * BEAT_RATIO &&
+      (low > avgBefore * BEAT_RATIO || low - avgBefore > BEAT_RISE) &&
       low > BEAT_MIN_LEVEL &&
       timeSec - this.lastBeat >= BEAT_MIN_INTERVAL
     if (beat) this.lastBeat = timeSec

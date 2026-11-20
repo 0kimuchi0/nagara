@@ -29,3 +29,13 @@ describe("Floor", () => {
     check(500, 300);
   });
 });
+
+describe("Floor resize stability", () => {
+  it("resizing back and forth restores the same shapes", () => {
+    const f = new Floor(B, mulberry32(10));
+    const before = f.shapes.map((s) => ({ ...s }));
+    f.resize({ width: 1920, height: 1080 });
+    f.resize(B);
+    expect(f.shapes).toEqual(before);
+  });
+});

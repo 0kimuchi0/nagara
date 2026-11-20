@@ -113,3 +113,31 @@ describe("Jellyfish", () => {
     });
   });
 });
+
+describe("Jellyfish spacing", () => {
+  it("initial x positions are spread out", () => {
+    const j = new Jellyfish({ width: 1200, height: 800 }, mulberry32(11));
+    const xs = j.bodies.map((b) => b.x).sort((a, b) => a - b);
+    expect(xs[1] - xs[0]).toBeGreaterThan(150);
+    expect(xs[2] - xs[1]).toBeGreaterThan(150);
+  });
+
+  it("no two bells overlap horizontally while at similar depth, over 60s", () => {
+    const W = 1200;
+    const H = 800;
+    const unit = Math.min(W, H) / 14;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const j = new Jellyfish({ width: W, height: H }, mulberry32(seed));
+      run(j, 60, { ...silent, beat: false }, () => {
+        const bs = j.bodies;
+        for (let a = 0; a < bs.length; a++) {
+          for (let c = a + 1; c < bs.length; c++) {
+            if (Math.abs(bs[a].y - bs[c].y) < unit * 1.5) {
+              expect(Math.abs(bs[a].x - bs[c].x)).toBeGreaterThan(unit * 2);
+            }
+          }
+        }
+      });
+    }
+  });
+});

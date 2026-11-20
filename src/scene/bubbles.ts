@@ -71,15 +71,22 @@ export class Bubbles implements SceneElement {
       b.y -= b.vy * speed * dt;
       b.x += Math.sin(this.time * 1.5 + b.phase) * b.wobble * dt;
     }
-    this.bubbles = this.bubbles.filter((b) => b.y >= 0);
+    // 画面外に出た泡を、新しい配列を作らずその場で詰めて取り除く
+    let w = 0;
+    for (let i = 0; i < this.bubbles.length; i++) {
+      const b = this.bubbles[i];
+      if (b.y >= 0) this.bubbles[w++] = b;
+    }
+    this.bubbles.length = w;
   }
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
     const [lr, lg, lb] = l.ray;
+    const fill = `rgba(${lr},${lg},${lb},0.12)`;
     for (const b of this.bubbles) {
       ctx.beginPath();
       ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${lr},${lg},${lb},0.12)`;
+      ctx.fillStyle = fill;
       ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = `rgba(255,255,255,0.45)`;

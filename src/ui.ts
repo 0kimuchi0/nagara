@@ -36,6 +36,14 @@ export function setupUI(h: UIHandlers): void {
   menu.append(fsBtn, micBtn)
   document.body.append(prompt, gear, menu)
 
+  // 5 秒で薄くなり、マウスが止まっている間は消える。動かすと薄く戻る
+  let promptDim = false
+  const syncPrompt = () => {
+    const active = document.body.classList.contains('active')
+    prompt.classList.toggle('dim', promptDim && active)
+    prompt.classList.toggle('idle', promptDim && !active)
+  }
+
   const setMic = (m: MicSource | null) => {
     mic = m
     micBtn.textContent = m ? 'マイク オフ' : 'マイク オン'
@@ -46,7 +54,11 @@ export function setupUI(h: UIHandlers): void {
     if (starting || mic) return
     starting = true
     try {
-      setMic(await startMicrophone())
+      const m = await startMicrophone()
+      m.onEnded(() => {
+        if (mic === m) setMic(null)
+      })
+      setMic(m)
     } catch (e) {
       console.warn('マイクを使えませんでした。時間帯モードで続けます。', e)
       setMic(null)
@@ -59,7 +71,10 @@ export function setupUI(h: UIHandlers): void {
     prompt.classList.add('gone')
     void enableMic()
   })
-  setTimeout(() => prompt.classList.add('dim'), PROMPT_DIM_MS)
+  setTimeout(() => {
+    promptDim = true
+    syncPrompt()
+  }, PROMPT_DIM_MS)
 
   micBtn.addEventListener('click', () => {
     if (mic) {
@@ -79,10 +94,12 @@ export function setupUI(h: UIHandlers): void {
   let timer: number | undefined
   const hideChrome = () => {
     document.body.classList.remove('active')
+    syncPrompt()
     menu.classList.remove('open')
   }
   const onMove = () => {
     document.body.classList.add('active')
+    syncPrompt()
     window.clearTimeout(timer)
     timer = window.setTimeout(hideChrome, HIDE_MS)
   }

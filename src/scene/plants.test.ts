@@ -44,3 +44,16 @@ describe("Plants", () => {
     }
   });
 });
+
+describe("Plants resize stability", () => {
+  it("existing stalks keep their normalized x when the window grows", () => {
+    const p = new Plants(B, mulberry32(6));
+    const before = p.roots.map((x) => x / B.width);
+    p.resize({ width: 2400, height: 800 });
+    expect(p.count).toBe(60);
+    p.roots.slice(0, 30).forEach((x, i) => expect(x / 2400).toBeCloseTo(before[i], 9));
+    p.resize(B);
+    expect(p.count).toBe(30);
+    p.roots.forEach((x, i) => expect(x / B.width).toBeCloseTo(before[i], 9));
+  });
+});

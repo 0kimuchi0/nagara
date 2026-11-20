@@ -56,6 +56,7 @@ export function startApp(canvas: HTMLCanvasElement): void {
   setupUI({
     onMic: (m) => {
       mic = m
+      beats.reset()
       if (!m) {
         smoothed.low = 0
         smoothed.high = 0

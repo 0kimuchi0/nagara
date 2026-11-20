@@ -70,6 +70,28 @@ describe('BeatDetector', () => {
   })
 })
 
+describe('BeatDetector with loud bass', () => {
+  it('still fires on 2 Hz kicks riding a 0.75 base (peak 1.0)', () => {
+    const d = new BeatDetector()
+    let beats = 0
+    for (let i = 0; i < 20 * 60; i++) {
+      const t = i / 60
+      const phase = (t * 2) % 1 // 2 Hz
+      const low = phase < 0.1 ? 1.0 : 0.75
+      if (d.update(low, t)) beats++
+    }
+    expect(beats).toBeGreaterThanOrEqual(30)
+  })
+
+  it('reset() clears the running average and last-beat time', () => {
+    const d = new BeatDetector()
+    for (let t = 0; t < 2; t += 1 / 60) d.update(0.9, t)
+    d.reset()
+    // after reset the first sample is treated as the baseline: no beat
+    expect(d.update(0.9, 5)).toBe(false)
+  })
+})
+
 describe('smooth guard', () => {
   it('returns the target when tau is zero or negative (no NaN)', () => {
     expect(smooth(0, 1, 0.016, 0, 0.4)).toBe(1)

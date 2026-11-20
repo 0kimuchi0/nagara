@@ -8,8 +8,19 @@ export interface FloorShape {
   h: number;
 }
 
+interface FloorSeed {
+  kind: "rock" | "wood";
+  /** 基準の幅 (px) */
+  nw: number;
+  /** 高さに対する比率 */
+  nh: number;
+  /** 0..1: 配置可能範囲 (width - w) 内での位置 */
+  pos: number;
+}
+
 export class Floor implements SceneElement {
   shapes: FloorShape[] = [];
+  private seeds: FloorSeed[] = [];
   private bounds: Bounds;
   private rng: () => number;
 
@@ -19,23 +30,39 @@ export class Floor implements SceneElement {
     this.layout();
   }
 
-  private layout(): void {
-    const { width, height } = this.bounds;
-    const n = Math.max(3, Math.round(width / 150));
-    this.shapes = [];
-    for (let i = 0; i < n; i++) {
+  /** 乱数は種を作る時だけ引く。リサイズでは既存の種を使い回し、足りない分だけ足す */
+  private grow(): void {
+    const n = Math.max(3, Math.round(this.bounds.width / 150));
+    while (this.seeds.length < n) {
       const kind = this.rng() < 0.7 ? "rock" : "wood";
       const rock = kind === "rock";
-      const w = Math.min(width, rock ? 90 + this.rng() * 150 : 50 + this.rng() * 90);
-      const h = Math.max(1, height * (rock ? 0.05 + this.rng() * 0.07 : 0.06 + this.rng() * 0.06));
-      const x = this.rng() * (width - w);
-      this.shapes.push({ kind, x, w, h });
+      this.seeds.push({
+        kind,
+        nw: rock ? 90 + this.rng() * 150 : 50 + this.rng() * 90,
+        nh: rock ? 0.05 + this.rng() * 0.07 : 0.06 + this.rng() * 0.06,
+        pos: this.rng(),
+      });
     }
+  }
+
+  private reflow(): void {
+    const { width, height } = this.bounds;
+    this.grow();
+    const n = Math.max(3, Math.round(width / 150));
+    this.shapes = this.seeds.slice(0, n).map((sd) => {
+      const w = Math.min(width, sd.nw);
+      const h = Math.max(1, height * sd.nh);
+      return { kind: sd.kind, x: sd.pos * (width - w), w, h };
+    });
+  }
+
+  private layout(): void {
+    this.reflow();
   }
 
   resize(b: Bounds): void {
     this.bounds = { ...b };
-    this.layout();
+    this.reflow();
   }
 
   update(_dt: number, _s: Stimulus): void {}

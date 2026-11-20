@@ -6,8 +6,10 @@ const SEGMENTS = 5;
 const SPACING = 40;
 
 interface Plant {
-  x: number;
-  height: number;
+  /** 0..1 (幅に対する比率) */
+  nx: number;
+  /** 高さに対する比率 */
+  nheight: number;
   freq: number;
   phase: number;
   width: number;
@@ -31,16 +33,17 @@ export class Plants implements SceneElement {
   }
 
   get roots(): ReadonlyArray<number> {
-    return this.plants.map((p) => p.x);
+    return this.plants.map((p) => p.nx * this.bounds.width);
   }
 
+  /** 本数を round(width/40) に合わせる。既存の株はそのまま残し、増減だけ行う */
   private layout(): void {
     const n = Math.round(this.bounds.width / SPACING);
-    this.plants = [];
-    for (let i = 0; i < n; i++) {
+    if (this.plants.length > n) this.plants.length = n;
+    while (this.plants.length < n) {
       this.plants.push({
-        x: this.rng() * this.bounds.width,
-        height: this.bounds.height * (0.15 + this.rng() * 0.3),
+        nx: this.rng(),
+        nheight: 0.15 + this.rng() * 0.3,
         freq: 0.5 + this.rng() * 0.6,
         phase: this.rng() * Math.PI * 2,
         width: 3 + this.rng() * 4,
@@ -48,9 +51,13 @@ export class Plants implements SceneElement {
     }
   }
 
+  private heightOf(p: Plant): number {
+    return p.nheight * this.bounds.height;
+  }
+
   /** 先端の横ずれ。節 t(0..1) では t^2 で先端ほど大きくなる */
   private offsetAt(p: Plant, t: number): number {
-    const amp = p.height * (0.06 + 0.25 * this.sway);
+    const amp = this.heightOf(p) * (0.06 + 0.25 * this.sway);
     return Math.sin(this.time * p.freq * 2 + p.phase + t * 1.2) * amp * t * t;
   }
 
@@ -74,6 +81,8 @@ export class Plants implements SceneElement {
     const base = this.bounds.height;
     ctx.lineCap = "round";
     for (const p of this.plants) {
+      const px = p.nx * this.bounds.width;
+      const ph = this.heightOf(p);
       const shade = 0.75 + 0.25 * Math.sin(p.phase);
       ctx.strokeStyle = `rgba(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)},0.85)`;
       for (let k = 0; k < SEGMENTS; k++) {
@@ -81,8 +90,8 @@ export class Plants implements SceneElement {
         const t1 = (k + 1) / SEGMENTS;
         ctx.lineWidth = p.width * (1 - t0 * 0.8);
         ctx.beginPath();
-        ctx.moveTo(p.x + this.offsetAt(p, t0), base - p.height * t0);
-        ctx.lineTo(p.x + this.offsetAt(p, t1), base - p.height * t1);
+        ctx.moveTo(px + this.offsetAt(p, t0), base - ph * t0);
+        ctx.lineTo(px + this.offsetAt(p, t1), base - ph * t1);
         ctx.stroke();
       }
     }
