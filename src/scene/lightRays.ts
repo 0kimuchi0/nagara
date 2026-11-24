@@ -8,13 +8,17 @@ const WOBBLE_HOLD = 0.1;
 const ABSORB = 0.42;
 /** 筋の広がり: 画面の左右端ほど外向きに傾く (水面近くの一点から扇状に差し込む) */
 const FAN = 0.35;
-/** 柔らかい縁を作るための重ね描き: [幅の倍率, 明るさの倍率] */
-const LAYERS: ReadonlyArray<[number, number]> = [
-  [2.4, 0.16],
-  [1.2, 0.32],
-  [0.45, 0.5],
-];
-const BASE_ALPHA = 0.55;
+/** 筋を縦に分けて描く数。区切りごとに横向きのグラデーションをかける */
+const SLICES = 32;
+/** 横方向のぼかしの広がり (筋の太さに対する倍率)。外側はほぼ透明になる */
+const SOFT_WIDTH = 2.6;
+/** 横方向の明るさの分布 (0..1 の位置 → 中心を 1 とした明るさ)。両端は 0 */
+const PROFILE: ReadonlyArray<[number, number]> = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1].map(
+  (u): [number, number] => [u, u === 0 || u === 1 ? 0 : Math.exp(-(((u - 0.5) / 0.22) ** 2))],
+);
+/** 筋の下端で消し込む長さ (画面の高さに対する比率) */
+const END_FADE = 0.25;
+const BASE_ALPHA = 0.42;
 
 export interface Ray {
   /** 0..1 水面での位置 (幅に対する比率) */
@@ -139,30 +143,42 @@ export class LightRays implements SceneElement {
     const v = clamp01(this.volume);
     const intensity = l.rayIntensity * (0.7 + 0.3 * v) * (1 + this.wobble * 0.3);
     const bottom = H * 0.95;
+    const sliceH = bottom / SLICES;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     for (let i = 0; i < this.rays.length; i++) {
       const ray = this.rays[i];
-      const s = this.strengthOf(ray);
-      const xTop = this.rayCentreAt(i, 0);
-      const xBot = this.rayCentreAt(i, bottom);
-      const wTop = this.widthAt(ray, 0);
-      const wBot = this.widthAt(ray, bottom);
-      for (const [wm, am] of LAYERS) {
-        const a = clamp01(intensity * s * am * BASE_ALPHA);
-        if (a < 0.002) continue;
-        // 軸に沿って、水に吸収されて弱まる
-        const grad = ctx.createLinearGradient(xTop, 0, xBot, bottom);
-        grad.addColorStop(0, `rgba(${r},${g},${b},${a.toFixed(3)})`);
-        grad.addColorStop(0.3, `rgba(${r},${g},${b},${(a * this.absorb(bottom * 0.3)).toFixed(3)})`);
-        grad.addColorStop(0.65, `rgba(${r},${g},${b},${(a * this.absorb(bottom * 0.65)).toFixed(3)})`);
-        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      const peak0 = clamp01(intensity * this.strengthOf(ray) * BASE_ALPHA);
+      if (peak0 < 0.002) continue;
+      for (let k = 0; k < SLICES; k++) {
+        // 継ぎ目は整数の位置にそろえ、重ねない (加算で重なると明るい横線が出る)
+        const y0 = Math.round(k * sliceH);
+        const y1 = Math.round((k + 1) * sliceH);
+        const ym = (y0 + y1) / 2;
+        // 深さで吸収されて弱まり、下端はなめらかに消える
+        const end = clamp01((bottom - ym) / (END_FADE * H));
+        const a = peak0 * this.absorb(ym) * end * end * (3 - 2 * end);
+        if (a < 0.001) continue;
+        const c0 = this.rayCentreAt(i, y0);
+        const c1 = this.rayCentreAt(i, y1);
+        const h0 = (this.widthAt(ray, y0) * SOFT_WIDTH) / 2;
+        const h1 = (this.widthAt(ray, y1) * SOFT_WIDTH) / 2;
+        // 筋を横切る向き (筋の軸に垂直) にグラデーションをかけ、両側へなめらかにぼかす
+        const cm = (c0 + c1) / 2;
+        const hm = (h0 + h1) / 2;
+        const ax = c1 - c0;
+        const ay = y1 - y0;
+        const len = Math.hypot(ax, ay) || 1;
+        const nx = ay / len;
+        const ny = -ax / len;
+        const grad = ctx.createLinearGradient(cm - nx * hm, ym - ny * hm, cm + nx * hm, ym + ny * hm);
+        for (const [u, w] of PROFILE) grad.addColorStop(u, `rgba(${r},${g},${b},${(a * w).toFixed(3)})`);
         ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.moveTo(xTop - (wTop * wm) / 2, 0);
-        ctx.lineTo(xTop + (wTop * wm) / 2, 0);
-        ctx.lineTo(xBot + (wBot * wm) / 2, bottom);
-        ctx.lineTo(xBot - (wBot * wm) / 2, bottom);
+        ctx.moveTo(c0 - h0, y0);
+        ctx.lineTo(c0 + h0, y0);
+        ctx.lineTo(c1 + h1, y1);
+        ctx.lineTo(c1 - h1, y1);
         ctx.closePath();
         ctx.fill();
       }

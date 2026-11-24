@@ -88,3 +88,74 @@ describe("LightRays realism", () => {
     expect(alphaMax(DAY)).toBeGreaterThan(alphaMax(NIGHT));
   });
 });
+
+describe("LightRays soft cross-section", () => {
+  type Call = { name: string; args: unknown[] };
+  const stopsPerGradient = (calls: Call[]) => {
+    // createLinearGradient の直後に続く addColorStop をひとまとめにする
+    const groups: number[][] = [];
+    for (const c of calls) {
+      if (c.name === "createLinearGradient") groups.push([]);
+      else if (c.name === "addColorStop" && groups.length > 0) {
+        const s = String(c.args[1]);
+        groups[groups.length - 1].push(Number(s.slice(s.lastIndexOf(",") + 1, -1)));
+      }
+    }
+    return groups.filter((g) => g.length > 0);
+  };
+
+  it("each band fades out to both sides: transparent edges, brightest in the middle", () => {
+    const r = new LightRays(B, mulberry32(8));
+    const { ctx, calls } = stubCtx();
+    r.draw(ctx, DAY);
+    const groups = stopsPerGradient(calls);
+    expect(groups.length).toBeGreaterThan(r.rays.length * 8); // 縦に細かく分けて描く
+    for (const g of groups) {
+      expect(g[0]).toBe(0);
+      expect(g[g.length - 1]).toBe(0);
+      const peak = Math.max(...g);
+      expect(g[Math.floor(g.length / 2)]).toBe(peak);
+      // 中心から端へなだらかに下がる (急な段差がない)
+      for (let i = 1; i < g.length; i++) expect(Math.abs(g[i] - g[i - 1])).toBeLessThanOrEqual(peak * 0.5 + 0.001); // 小数 3 桁への丸め分
+    }
+  });
+
+  it("brightness changes gradually down the ray (no visible steps between slices)", () => {
+    const r = new LightRays(B, mulberry32(9));
+    const { ctx, calls } = stubCtx();
+    r.draw(ctx, DAY);
+    const peaks = stopsPerGradient(calls).map((g) => Math.max(...g));
+    // 筋ごとに分ける (上から下へ暗くなっていくので、明るさが増えたら次の筋)
+    const rays: number[][] = [];
+    for (const p of peaks) {
+      const cur = rays[rays.length - 1];
+      if (!cur || p > cur[cur.length - 1] + 1e-9) rays.push([p]);
+      else cur.push(p);
+    }
+    expect(rays.length).toBeGreaterThan(3);
+    for (const ray of rays) {
+      const top = ray[0];
+      // 隣り合う区切りの明るさの差は、その筋の一番明るい所の 15% 未満
+      for (let i = 1; i < ray.length; i++) expect(ray[i - 1] - ray[i]).toBeLessThan(top * 0.15);
+    }
+  });
+});
+
+describe("LightRays seams", () => {
+  it("slices meet exactly on whole pixels without overlapping (no bright lines at the joins)", () => {
+    const r = new LightRays(B, mulberry32(10));
+    const { ctx, calls } = stubCtx();
+    r.draw(ctx, DAY);
+    const ys = calls.filter((c) => c.name === "moveTo" || c.name === "lineTo").map((c) => (c.args as number[])[1]);
+    for (const y of ys) expect(Number.isInteger(y)).toBe(true);
+    // 各区切りの上端 (moveTo) は、前の区切りの下端と同じ高さか、次の筋の始まり (0)
+    const quads: number[][] = [];
+    calls.forEach((c, i) => {
+      if (c.name === "moveTo") quads.push([(c.args as number[])[1], (calls[i + 2].args as number[])[1]]);
+    });
+    for (let i = 1; i < quads.length; i++) {
+      const top = quads[i][0];
+      if (top !== 0) expect(top).toBe(quads[i - 1][1]);
+    }
+  });
+});
