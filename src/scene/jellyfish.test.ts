@@ -141,3 +141,17 @@ describe("Jellyfish spacing", () => {
     }
   });
 });
+
+describe("Jellyfish trailing velocity", () => {
+  it("smoothed velocity follows the direction of travel and rises on a beat", () => {
+    const j = new Jellyfish({ width: 1200, height: 800 }, mulberry32(11));
+    run(j, 3);
+    const internal = j as unknown as { jellies: Array<{ vx: number; velX: number; velY: number }> };
+    for (const b of internal.jellies) {
+      if (Math.abs(b.vx) > 5) expect(Math.sign(b.velX)).toBe(Math.sign(b.vx));
+    }
+    j.update(DT, { ...silent, beat: true });
+    run(j, 0.3);
+    for (const b of internal.jellies) expect(b.velY).toBeLessThan(0);
+  });
+});
