@@ -1,7 +1,7 @@
 import type { Lighting } from "../palette";
 import { smooth } from "../audio/analysis";
 import type { Bounds, SceneElement, Stimulus } from "./types";
-import { hazed, layerOf, scaleOf, type Layer } from "./depth";
+import { hazed, layerOf, mixRGB, scaleOf, type Layer } from "./depth";
 import { drawRibbon, drawStem, drawSword, type PlantKind, type Spine } from "./plantDraw";
 import type { RGB } from "../palette";
 
@@ -88,6 +88,13 @@ export class Plants implements SceneElement {
     return p.width * (0.35 + 1.5 * p.depth * p.depth);
   }
 
+  /** 光の筋にどれだけ照らされているか (x, y → 0..1) */
+  private lightAt: (x: number, y: number) => number = () => 0;
+
+  setLight(fn: (x: number, y: number) => number): void {
+    this.lightAt = (x, y) => Math.min(1, Math.max(0, fn(x, y)));
+  }
+
   /** 手前の底床の上の縁 (x → y)。未設定なら画面の下端 */
   private ground: (x: number) => number = () => this.bounds.height;
 
@@ -151,7 +158,10 @@ export class Plants implements SceneElement {
       const yMid = (base - ph * 0.5) / this.bounds.height;
       const shade = (0.8 + 0.2 * Math.sin(p.phase)) * (0.85 + 0.25 * p.depth);
       const tone = this.toneOf(p, l.plant);
-      const lit: RGB = [Math.min(255, tone[0] * shade), Math.min(255, tone[1] * shade), Math.min(255, tone[2] * shade)];
+      const shaded: RGB = [Math.min(255, tone[0] * shade), Math.min(255, tone[1] * shade), Math.min(255, tone[2] * shade)];
+      // 光の筋の中にある株は、差し込む光の色で明るく照らされる
+      const sun = this.lightAt(px, base - ph * 0.6) * Math.min(1, l.rayIntensity * 1.3);
+      const lit = mixRGB(shaded, mixRGB(l.ray, [255, 255, 255], 0.3), 0.4 * sun);
       const color = hazed(lit, l, yMid, p.depth);
       const tip = hazed(this.tipOf(p, lit), l, yMid, p.depth);
       const look = { color, tip, alpha: 0.6 + 0.35 * p.depth, width: this.widthOf(p) * 1.6 };

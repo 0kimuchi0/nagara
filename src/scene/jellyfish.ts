@@ -2,7 +2,7 @@ import type { Lighting } from "../palette";
 import { smooth } from "../audio/analysis";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 import { drawJelly } from "./jellyDraw";
-import { hazed } from "./depth";
+import { hazed, mixRGB } from "./depth";
 
 const Y_MIN = 0.1;
 const Y_MAX = 0.7;
@@ -244,6 +244,17 @@ export class Jellyfish implements SceneElement {
     });
   }
 
+  private lightAt: (x: number, y: number) => number = () => 0;
+
+  /** 光の筋にどれだけ照らされているか (x, y → 0..1)。照らされた海月は透けて明るく光る */
+  setLight(fn: (x: number, y: number) => number): void {
+    this.lightAt = (x, y) => Math.min(1, Math.max(0, fn(x, y)));
+  }
+
+  private sunAt(j: Body): number {
+    return this.lightAt(j.x, j.y);
+  }
+
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
     ctx.save();
     const baseGlow = clamp(l.jellyGlow * 0.7 + this.volume * 0.4, 0, 1);
@@ -256,8 +267,8 @@ export class Jellyfish implements SceneElement {
         ctx,
         { x: j.x, y: j.y, unit: unit * j.size, pulse: j.pulse, phase: j.phase, velX: j.velX, velY: j.velY },
         this.time,
-        hazed(l.ray, l, j.y / h, j.depth, 0.4),
-        baseGlow * (0.45 + 0.55 * j.depth),
+        hazed(mixRGB(l.ray, [255, 255, 255], 0.35 * this.sunAt(j)), l, j.y / h, j.depth, 0.4),
+        clamp(baseGlow * (0.45 + 0.55 * j.depth) + 0.45 * this.sunAt(j) * Math.min(1, l.rayIntensity * 1.3), 0, 1),
       );
     }
     ctx.restore();

@@ -69,6 +69,13 @@ export class Floor implements SceneElement {
     this.reflow();
   }
 
+  private lightAt: (x: number, y: number) => number = () => 0;
+
+  /** 光の筋にどれだけ照らされているか (x, y → 0..1) */
+  setLight(fn: (x: number, y: number) => number): void {
+    this.lightAt = (x, y) => Math.min(1, Math.max(0, fn(x, y)));
+  }
+
   /** 手前の底床の上の縁の y。ゆるやかに盛り上がったり下がったりする */
   terrainTop(x: number): number {
     const { width, height } = this.bounds;
@@ -232,10 +239,13 @@ export class Floor implements SceneElement {
     const mossBase: RGB = mixRGB(l.plant, l.waterBottom, 0.25);
     for (const s of list) {
       const yf = s.base / height;
+      // 光の筋の中にある石は、上から差す光で明るく照らされる
+      const sun = this.lightAt(s.x + s.w / 2, s.base - s.h) * Math.min(1, l.rayIntensity * 1.3);
+      const sunlit = mixRGB(l.ray, [255, 255, 255], 0.3);
       const look = {
-        body: hazed(mixRGB(stone, [0, 0, 0], 0.12), l, yf, s.depth),
-        light: hazed(mixRGB(l.ray, [255, 255, 255], 0.2), l, yf, s.depth),
-        moss: hazed(mossBase, l, yf, s.depth),
+        body: hazed(mixRGB(mixRGB(stone, [0, 0, 0], 0.12), sunlit, 0.3 * sun), l, yf, s.depth),
+        light: hazed(mixRGB(mixRGB(l.ray, [255, 255, 255], 0.2), [255, 255, 255], 0.3 * sun), l, yf, s.depth),
+        moss: hazed(mixRGB(mossBase, sunlit, 0.25 * sun), l, yf, s.depth),
       };
       if (layer === "far") {
         drawContactShadow(ctx, s.x + s.w / 2, s.base, s.w * 0.55, s.h * 0.12, hazed(sand, l, yf, s.depth), 0.6);
