@@ -1,6 +1,7 @@
 import type { Lighting, RGB } from "../palette";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 import { hazed, layerOf, mixRGB, scaleOf, type Layer } from "./depth";
+import { drawGravel, drawRock, drawWood } from "./floorDraw";
 
 export interface FloorShape {
   kind: "rock" | "wood";
@@ -11,6 +12,8 @@ export interface FloorShape {
   depth: number;
   /** 置かれている床の y (奥ほど画面の上) */
   base: number;
+  /** 輪郭の起伏や枝の付き方を決める 0..1 の数列 */
+  form: ReadonlyArray<number>;
 }
 
 interface FloorSeed {
@@ -22,6 +25,7 @@ interface FloorSeed {
   /** 0..1: 配置可能範囲 (width - w) 内での位置 */
   pos: number;
   depth: number;
+  form: number[];
 }
 
 /** 奥の床が画面上でどれだけ上にあるか (高さに対する比率) */
@@ -51,13 +55,14 @@ export class Floor implements SceneElement {
     while (this.seeds.length < n) {
       const kind = this.rng() < 0.7 ? "rock" : "wood";
       const rock = kind === "rock";
-      const nw = rock ? 90 + this.rng() * 150 : 50 + this.rng() * 90;
-      const nh = rock ? 0.05 + this.rng() * 0.07 : 0.06 + this.rng() * 0.06;
+      const nw = rock ? 120 + this.rng() * 160 : 110 + this.rng() * 120;
+      const nh = rock ? 0.07 + this.rng() * 0.05 : 0.08 + this.rng() * 0.04;
       const pos = this.rng();
       // 奥と手前を交互に置き、どちらの列も必ずできるようにする
       const far = this.seeds.length % 2 === 0;
       const depth = far ? this.rng() * 0.4 : 0.6 + this.rng() * 0.4;
-      this.seeds.push({ kind, nw, nh, pos, depth });
+      const form = Array.from({ length: 7 }, () => this.rng());
+      this.seeds.push({ kind, nw, nh, pos, depth, form });
     }
   }
 
@@ -69,7 +74,7 @@ export class Floor implements SceneElement {
       const w = Math.min(width, sd.nw * sc);
       const h = Math.max(1, Math.min(height * MAX_H, height * sd.nh * sc));
       const base = sd.depth >= 0.5 ? height : height * (1 - FLOOR_DEPTH * (1 - sd.depth * 2));
-      return { kind: sd.kind, x: sd.pos * (width - w), w, h, depth: sd.depth, base };
+      return { kind: sd.kind, x: sd.pos * (width - w), w, h, depth: sd.depth, base, form: sd.form };
     });
   }
 
@@ -117,7 +122,6 @@ export class Floor implements SceneElement {
   drawLayer(ctx: CanvasRenderingContext2D, l: Lighting, layer: Layer): void {
     const { width, height } = this.bounds;
     const stone: RGB = mixRGB(l.waterBottom, mixRGB(l.plant, l.ray, 0.5), 0.3);
-    const fill = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
     if (layer === "far") {
       // 奥の床: 画面下部へ向かってかすむ帯
       const top = height * (1 - FLOOR_DEPTH);
@@ -130,28 +134,22 @@ export class Floor implements SceneElement {
       this.drawDistantGrowth(ctx, l);
     }
     const list = this.shapes.filter((s) => layerOf(s.depth) === layer).sort((a, b) => a.depth - b.depth);
+    const mossBase: RGB = mixRGB(l.plant, l.waterBottom, 0.25);
     for (const s of list) {
-      ctx.fillStyle = fill(hazed(stone, l, s.base / height, s.depth));
-      ctx.beginPath();
-      if (s.kind === "rock") {
-        ctx.moveTo(s.x, s.base);
-        ctx.quadraticCurveTo(s.x + s.w * 0.1, s.base - s.h, s.x + s.w * 0.5, s.base - s.h);
-        ctx.quadraticCurveTo(s.x + s.w * 0.9, s.base - s.h, s.x + s.w, s.base);
-      } else {
-        // 細く斜めの流木
-        const t = Math.max(3, s.w * 0.14);
-        ctx.moveTo(s.x, s.base);
-        ctx.lineTo(s.x + s.w * 0.7, s.base - s.h);
-        ctx.lineTo(s.x + s.w * 0.7 + t, s.base - s.h);
-        ctx.lineTo(s.x + t * 1.5, s.base);
-      }
-      ctx.closePath();
-      ctx.fill();
+      const yf = s.base / height;
+      const look = {
+        body: hazed(mixRGB(stone, [0, 0, 0], 0.12), l, yf, s.depth),
+        light: hazed(mixRGB(l.ray, [255, 255, 255], 0.2), l, yf, s.depth),
+        moss: hazed(mossBase, l, yf, s.depth),
+      };
+      if (s.kind === "rock") drawRock(ctx, s.x, s.w, s.h, s.base, s.form, look, s.depth >= 0.5 && s.form[0] > 0.35);
+      else drawWood(ctx, s.x, s.w, s.h, s.base, s.form, look);
     }
     if (layer === "near") {
-      const sandH = height * 0.03;
-      ctx.fillStyle = fill(mixRGB(l.waterBottom, mixRGB(l.plant, l.ray, 0.5), 0.2));
-      ctx.fillRect(0, height - sandH, width, sandH);
+      const sandH = height * 0.035;
+      const sand = mixRGB(l.waterBottom, mixRGB(l.plant, l.ray, 0.5), 0.25);
+      const seed = this.seeds.length > 0 ? this.seeds[0].pos : 0;
+      drawGravel(ctx, width, height - sandH, height, sand, mixRGB(l.ray, [255, 255, 255], 0.2), seed);
     }
   }
 }
