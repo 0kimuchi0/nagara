@@ -60,7 +60,7 @@ describe("Caustics", () => {
     let ys: number[] = [];
     for (const x of calls) {
       if (x.name === "moveTo" || x.name === "lineTo") ys.push((x.args as number[])[1]);
-      if (x.name === "set:strokeStyle") {
+      if (x.name === "set:strokeStyle" && ys.length > 0) {
         const s = String(x.args[0]);
         rings.push({ y: ys.reduce((p, q) => p + q, 0) / ys.length, a: Number(s.slice(s.lastIndexOf(",") + 1, -1)) });
         ys = [];
@@ -80,5 +80,27 @@ describe("Caustics", () => {
     const b = stubCtx();
     c.drawFloor(b.ctx, DAY);
     expect(points(b.calls)).not.toEqual(points(a.calls));
+  });
+});
+
+describe("Caustics realism", () => {
+  it("the surface twinkles with small glints by day", () => {
+    const c = new Caustics(B, mulberry32(61));
+    let most = 0;
+    for (let f = 0; f < 60; f++) {
+      c.update(1 / 30, silent);
+      const { ctx, calls } = stubCtx();
+      c.drawSurface(ctx, DAY);
+      most = Math.max(most, calls.filter((x) => x.name === "arc").length);
+    }
+    expect(most).toBeGreaterThan(3);
+  });
+  it("floor light has a soft glow around each bright line (two strokes per ring)", () => {
+    const c = new Caustics(B, mulberry32(62));
+    const { ctx, calls } = stubCtx();
+    c.drawFloor(ctx, DAY);
+    const strokes = calls.filter((x) => x.name === "stroke").length;
+    const paths = calls.filter((x) => x.name === "beginPath").length;
+    expect(strokes).toBeGreaterThanOrEqual(paths * 2 - 1);
   });
 });

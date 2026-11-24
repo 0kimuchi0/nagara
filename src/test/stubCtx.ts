@@ -1,7 +1,7 @@
 /** テスト専用: 呼び出しを記録するだけの Canvas 代用品 */
 export function stubCtx() {
   const calls: Array<{ name: string; args: unknown[] }> = [];
-  const gradient = { addColorStop: (..._a: unknown[]) => {} };
+  const gradient = { addColorStop: (...a: unknown[]) => void calls.push({ name: "addColorStop", args: a }) };
   const ctx = new Proxy({} as Record<string, unknown>, {
     get(target, prop: string) {
       if (prop in target) return target[prop];

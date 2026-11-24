@@ -4,25 +4,48 @@ import type { Bounds, SceneElement, Stimulus } from "./types";
 
 /** 拍でゆらぎの目標を保持する時間 (秒)。フレームレートに依存させない */
 const WOBBLE_HOLD = 0.1;
+/** 光が水に吸収されて弱まる深さの目安 (画面の高さに対する比率)。この深さで約 37% になる */
+const ABSORB = 0.42;
+/** 筋の広がり: 画面の左右端ほど外向きに傾く (水面近くの一点から扇状に差し込む) */
+const FAN = 0.35;
+/** 柔らかい縁を作るための重ね描き: [幅の倍率, 明るさの倍率] */
+const LAYERS: ReadonlyArray<[number, number]> = [
+  [2.4, 0.16],
+  [1.2, 0.32],
+  [0.45, 0.5],
+];
+const BASE_ALPHA = 0.55;
 
-interface Ray {
-  /** 0..1 (幅に対する比率) */
+export interface Ray {
+  /** 0..1 水面での位置 (幅に対する比率) */
   nx: number;
-  /** 幅に対する比率 */
+  /** 水面での太さ (幅に対する比率) */
   nwidth: number;
-  tilt: number;
   phase: number;
-  freq: number;
+  /** ゆらぎの速さ (2 つの周期を重ねて規則的に見えないようにする) */
+  f1: number;
+  f2: number;
+  /** 横方向の漂いの速さ */
+  drift: number;
 }
 
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+
+/**
+ * 水面から差し込む光の筋。
+ * - 水面の一点から扇状に広がり、深くなるほど太く、水に吸収されて弱まる
+ * - 中心が明るく縁がぼやける (幅の違う帯を加算で重ねる)
+ * - 水面の波に合わせて、筋ごとに明るさがゆっくり強まったり消えたりする
+ */
 export class LightRays implements SceneElement {
-  private rays: Ray[] = [];
+  rays: Ray[] = [];
   private bounds: Bounds;
   private rng: () => number;
   private time = 0;
   private wobble = 0;
   private wobbleHold = 0;
   private volume = 0;
+  private sunLean = 0.17;
 
   constructor(b: Bounds, rng: () => number) {
     this.rng = rng;
@@ -39,15 +62,18 @@ export class LightRays implements SceneElement {
   }
 
   private layout(): void {
-    const n = 4 + Math.floor(this.rng() * 3);
+    this.sunLean = 0.12 + this.rng() * 0.1;
+    const n = 7 + Math.floor(this.rng() * 4);
     this.rays = [];
     for (let i = 0; i < n; i++) {
+      const thin = this.rng() < 0.4;
       this.rays.push({
-        nx: (i + 0.5 + (this.rng() - 0.5) * 0.6) / n,
-        nwidth: 0.04 + this.rng() * 0.06,
-        tilt: 0.15 + this.rng() * 0.2,
+        nx: (i + 0.5 + (this.rng() - 0.5) * 0.7) / n,
+        nwidth: thin ? 0.008 + this.rng() * 0.012 : 0.025 + this.rng() * 0.04,
         phase: this.rng() * Math.PI * 2,
-        freq: 0.1 + this.rng() * 0.15,
+        f1: 0.25 + this.rng() * 0.35,
+        f2: 0.6 + this.rng() * 0.6,
+        drift: 0.05 + this.rng() * 0.08,
       });
     }
   }
@@ -65,29 +91,82 @@ export class LightRays implements SceneElement {
     this.wobble = smooth(this.wobble, this.wobbleHold > 0 ? 1 : 0, dt, 0.03, 0.6);
   }
 
+  /** 筋の傾き (高さ 1px あたりの横ずれ) */
+  private leanOf(r: Ray): number {
+    const beat = this.wobble * 0.04 * Math.sin(this.time * 3 + r.phase);
+    return this.sunLean + (r.nx - 0.5) * FAN + beat;
+  }
+
+  /** i 番目の筋の、高さ y における中心の x */
+  rayCentreAt(i: number, y: number): number {
+    const r = this.rays[i];
+    if (!r) return 0;
+    const W = this.bounds.width;
+    const x0 = r.nx * W + Math.sin(this.time * r.drift + r.phase) * W * 0.02;
+    return x0 + this.leanOf(r) * y;
+  }
+
+  /** i 番目の筋の、高さ y における太さ (px)。深いほど広がる */
+  private widthAt(r: Ray, y: number): number {
+    return r.nwidth * this.bounds.width * (1 + 1.3 * (y / Math.max(1, this.bounds.height)));
+  }
+
+  /** 筋ごとの今の明るさ 0..1。水面の波で強まったり消えかけたりする */
+  private strengthOf(r: Ray): number {
+    const wave = 0.6 * Math.sin(this.time * r.f1 + r.phase) + 0.4 * Math.sin(this.time * r.f2 + r.phase * 1.7);
+    return 0.25 + 0.75 * Math.pow(clamp01(0.5 + 0.5 * wave), 1.4);
+  }
+
+  private absorb(y: number): number {
+    return Math.exp(-Math.max(0, y) / (ABSORB * Math.max(1, this.bounds.height)));
+  }
+
+  /** 位置 (x, y) が光の筋にどれだけ照らされているか 0..1 (照明の強さは含まない) */
+  coverage(x: number, y: number): number {
+    let sum = 0;
+    const fade = this.absorb(y);
+    for (let i = 0; i < this.rays.length; i++) {
+      const r = this.rays[i];
+      const d = (x - this.rayCentreAt(i, y)) / (this.widthAt(r, y) * 0.6);
+      sum += this.strengthOf(r) * Math.exp(-d * d);
+    }
+    return clamp01(sum * fade);
+  }
+
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
     const [r, g, b] = l.ray;
-    const intensity = l.rayIntensity * (0.6 + 0.4 * Math.max(0, Math.min(1, this.volume)));
-    const h = this.bounds.height;
-    for (const ray of this.rays) {
-      const rx = ray.nx * this.bounds.width;
-      const rw = ray.nwidth * this.bounds.width;
-      const sway = Math.sin(this.time * ray.freq * 2 + ray.phase);
-      const beatSway = this.wobble * 0.15 * Math.sin(this.time * 3 + ray.phase);
-      const x0 = rx + sway * 30;
-      const dx = h * (ray.tilt + beatSway);
-      const a = intensity * (0.12 + 0.05 * sway) * (1 + this.wobble * 0.3);
-      const grad = ctx.createLinearGradient(x0, 0, x0 + dx, h);
-      grad.addColorStop(0, `rgba(${r},${g},${b},${a})`);
-      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(x0 - rw * 0.5, 0);
-      ctx.lineTo(x0 + rw * 0.5, 0);
-      ctx.lineTo(x0 + dx + rw * 1.5, h);
-      ctx.lineTo(x0 + dx - rw * 1.5, h);
-      ctx.closePath();
-      ctx.fill();
+    const H = this.bounds.height;
+    const v = clamp01(this.volume);
+    const intensity = l.rayIntensity * (0.7 + 0.3 * v) * (1 + this.wobble * 0.3);
+    const bottom = H * 0.95;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < this.rays.length; i++) {
+      const ray = this.rays[i];
+      const s = this.strengthOf(ray);
+      const xTop = this.rayCentreAt(i, 0);
+      const xBot = this.rayCentreAt(i, bottom);
+      const wTop = this.widthAt(ray, 0);
+      const wBot = this.widthAt(ray, bottom);
+      for (const [wm, am] of LAYERS) {
+        const a = clamp01(intensity * s * am * BASE_ALPHA);
+        if (a < 0.002) continue;
+        // 軸に沿って、水に吸収されて弱まる
+        const grad = ctx.createLinearGradient(xTop, 0, xBot, bottom);
+        grad.addColorStop(0, `rgba(${r},${g},${b},${a.toFixed(3)})`);
+        grad.addColorStop(0.3, `rgba(${r},${g},${b},${(a * this.absorb(bottom * 0.3)).toFixed(3)})`);
+        grad.addColorStop(0.65, `rgba(${r},${g},${b},${(a * this.absorb(bottom * 0.65)).toFixed(3)})`);
+        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(xTop - (wTop * wm) / 2, 0);
+        ctx.lineTo(xTop + (wTop * wm) / 2, 0);
+        ctx.lineTo(xBot + (wBot * wm) / 2, bottom);
+        ctx.lineTo(xBot - (wBot * wm) / 2, bottom);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
+    ctx.restore();
   }
 }
