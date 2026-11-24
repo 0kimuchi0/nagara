@@ -2,12 +2,8 @@ import type { Lighting, RGB } from "../palette";
 import { mixRGB } from "./depth";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 
-/** 水面の波の本数 */
-const STRANDS = 5;
 /** 水底のうち光が揺れる帯の高さ (画面の高さに対する比率) */
 const FLOOR_BAND = 0.22;
-/** 水面のきらめきの帯の高さ */
-const SURFACE_BAND = 0.07;
 
 const rgba = (c: RGB, a: number): string =>
   `rgba(${c[0]},${c[1]},${c[2]},${Math.min(1, Math.max(0, a)).toFixed(3)})`;
@@ -28,26 +24,16 @@ interface Cell {
   drift: number;
 }
 
-interface Strand {
-  /** 0..1 帯の中での位置 */
-  pos: number;
-  freq: number;
-  freq2: number;
-  speed: number;
-  phase: number;
-}
-
 /**
  * 水の透明感を出す光の表現。
  * - 水底 (と石の上) で揺れる網目状の光 (コースティクス)
- * - 画面上端の水面のきらめき
+ * 水面は surface.ts の WaterSurface が描く。
  * 明るさは照明の rayIntensity と音量 (平滑化済み) で決まる。
  */
 export class Caustics implements SceneElement {
   private bounds: Bounds;
   private time = 0;
   private volume = 0;
-  private strands: Strand[] = [];
   private cells: Cell[] = [];
 
   constructor(b: Bounds, rng: () => number) {
@@ -60,15 +46,6 @@ export class Caustics implements SceneElement {
         phase: rng() * Math.PI * 2,
         speed: 0.5 + rng() * 0.6,
         drift: (rng() - 0.5) * 0.02,
-      });
-    }
-    for (let i = 0; i < STRANDS; i++) {
-      this.strands.push({
-        pos: (i % STRANDS) / STRANDS + rng() * 0.08,
-        freq: 4 + rng() * 5,
-        freq2: 11 + rng() * 9,
-        speed: 0.25 + rng() * 0.35,
-        phase: rng() * Math.PI * 2,
       });
     }
   }
@@ -85,70 +62,12 @@ export class Caustics implements SceneElement {
   }
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
-    this.drawSurface(ctx, l);
     this.drawFloor(ctx, l);
   }
 
   private strength(l: Lighting): number {
     const v = Math.min(1, Math.max(0, this.volume));
     return Math.min(1, l.rayIntensity * (0.85 + 0.3 * v));
-  }
-
-  /** 画面上端: 明るい水面の帯と、ゆっくり流れる波の照り返し */
-  drawSurface(ctx: CanvasRenderingContext2D, l: Lighting): void {
-    const { width, height } = this.bounds;
-    const band = height * SURFACE_BAND;
-    const k = this.strength(l);
-    const light = mixRGB(l.ray, [255, 255, 255], 0.5);
-    ctx.save();
-    const g = ctx.createLinearGradient(0, 0, 0, band * 1.6);
-    g.addColorStop(0, rgba(light, 0.35 * k + 0.05));
-    g.addColorStop(1, rgba(light, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, width, band * 1.6);
-
-    ctx.globalCompositeOperation = "lighter";
-    ctx.lineCap = "round";
-    const step = Math.max(6, width / 160);
-    for (let i = 0; i < 5; i++) {
-      const s = this.strands[i];
-      const y0 = band * (0.15 + 0.17 * i);
-      ctx.beginPath();
-      for (let x = 0; x <= width; x += step) {
-        const u = x / Math.max(1, width);
-        const y =
-          y0 +
-          Math.sin(u * s.freq * 2 + this.time * s.speed * 3 + s.phase) * band * 0.12 +
-          Math.sin(u * s.freq2 * 2 - this.time * s.speed * 2) * band * 0.05;
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.lineWidth = 1.5 + (4 - i) * 0.6;
-      ctx.strokeStyle = rgba(light, (0.18 - i * 0.025) * k);
-      ctx.stroke();
-    }
-
-    // 水面のきらめき: 波の山で日光が反射して、小さな点が一瞬光っては消える
-    const glints = 40;
-    const white = mixRGB(light, [255, 255, 255], 0.6);
-    for (let i = 0; i < glints; i++) {
-      const hx = Math.sin(i * 12.9898) * 43758.5453;
-      const hy = Math.sin(i * 78.233) * 12345.678;
-      const u = hx - Math.floor(hx);
-      const w2 = hy - Math.floor(hy);
-      // 点ごとに違う周期でまたたく。鋭いピークだけを使って一瞬だけ光らせる
-      const tw = Math.sin(this.time * (1.3 + w2 * 1.7) + i * 2.1);
-      const flash = Math.pow(Math.max(0, tw), 12);
-      if (flash < 0.05) continue;
-      const x = ((u + this.time * 0.004 * (w2 - 0.5)) % 1 + 1) % 1 * width;
-      const y = band * (0.1 + 0.8 * w2);
-      const r = 0.8 + 1.8 * flash;
-      ctx.fillStyle = rgba(white, 0.7 * flash * k);
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
   }
 
   /**
