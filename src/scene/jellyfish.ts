@@ -6,15 +6,27 @@ import { hazed } from "./depth";
 
 const Y_MIN = 0.1;
 const Y_MAX = 0.7;
-/** 傘の開閉周期 (秒) */
-const PERIOD = 3;
+/** 傘の開閉周期 (秒)。泳いでいる時は速く、休んでいる時はゆっくり */
+const PERIOD_SWIM = 2.2;
+const PERIOD_REST = 4.5;
+/** 休んでいる時の開閉の大きさ (泳いでいる時を 1 とする) */
+const REST_PULSE = 0.3;
+/** 沈む速さ (傘の基準の大きさ / 秒)。泳いでいる時と休んでいる時 */
+const SINK_SWIM = 0.3;
+const SINK_REST = 0.5;
+/** 泳ぐ/休むの切り替え: 画面の高さに対する位置と、続ける最長時間 (秒) */
+const SWIM_UNTIL = 0.22;
+const REST_UNTIL = 0.6;
+const BOUT_MAX = 14;
+/** 泳ぐ/休むの切り替えにかける時間の時定数 (秒) */
+const VIGOR_TAU = 1.2;
 /** 1 周期のうち、傘を閉じるのに使う割合。残りでゆっくり開く */
 export const CONTRACT = 0.3;
 /** 閉じる間に上へ進む最大の速さ (傘の基準の大きさ / 秒)。画面の大きさに合わせて伸び縮みする */
-const THRUST = 1.5;
+const THRUST = 2.6;
 /** 推進の立ち上がりと、閉じ終えた後に惰性で進む時間の時定数 (秒) */
 const GLIDE_ATTACK = 0.08;
-const GLIDE_RELEASE = 0.35;
+const GLIDE_RELEASE = 0.45;
 
 const ease = (x: number): number => 0.5 - 0.5 * Math.cos(Math.PI * x);
 /** 周期内の位置 c (0..1、範囲外は折り返す) → 傘の閉じ具合 0..1 */
@@ -29,8 +41,6 @@ const KICK_TAU = 0.8;
 const SQUEEZE_HOLD = 0.2;
 const SQUEEZE_ATTACK = 0.06;
 const SQUEEZE_RELEASE = 0.5;
-/** 基準高さへ戻るばね定数 (1/s)。拍で上がっても沈んで戻る */
-const HOME_SPRING = 1.2;
 /** なびき用速度の平滑化の時定数 (秒) */
 const VEL_TAU = 0.4;
 /** 傘どうしがこの倍率 x 傘の幅より近づくと、横方向に互いを押し離す */
@@ -52,6 +62,12 @@ interface Body {
   kick: number;
   /** 傘を閉じて得た上向きの速さ (px/s)。閉じ終えた後も少し惰性で残る */
   glide: number;
+  /** 泳いでいる (swim) か、休んで沈んでいる (rest) か */
+  mode: "swim" | "rest";
+  /** 今のモードを続けている時間 (秒) */
+  modeTime: number;
+  /** 0 = 休み 〜 1 = 泳ぎ。モードの切り替えをなめらかにする */
+  vigor: number;
   squeeze: number;
   squeezeHold: number;
   pulse: number;
@@ -97,6 +113,9 @@ export class Jellyfish implements SceneElement {
       depth: 1,
       kick: 0,
       glide: 0,
+      mode: "swim",
+      modeTime: 0,
+      vigor: 1,
       squeeze: 0,
       squeezeHold: 0,
       pulse: 0,
@@ -176,19 +195,34 @@ export class Jellyfish implements SceneElement {
       j.squeeze = smooth(j.squeeze, target, dt, SQUEEZE_ATTACK, SQUEEZE_RELEASE);
       j.kick *= Math.exp(-dt / KICK_TAU);
 
-      j.phase += (step * Math.PI * 2) / PERIOD;
+      // 泳ぐ ⇄ 休む の切り替え: 上まで泳いだら休んで沈み、下まで沈んだらまた泳ぐ
+      j.modeTime += dt;
+      if (j.mode === "swim" && (j.y < height * SWIM_UNTIL || j.modeTime > BOUT_MAX)) {
+        j.mode = "rest";
+        j.modeTime = 0;
+      } else if (j.mode === "rest" && (j.y > height * REST_UNTIL || j.modeTime > BOUT_MAX)) {
+        j.mode = "swim";
+        j.modeTime = 0;
+      }
+      j.vigor = smooth(j.vigor, j.mode === "swim" ? 1 : 0, dt, VIGOR_TAU, VIGOR_TAU);
+      const vigor = j.vigor;
+      const period = PERIOD_REST + (PERIOD_SWIM - PERIOD_REST) * vigor;
+      const amp = REST_PULSE + (1 - REST_PULSE) * vigor;
+
+      j.phase += (step * Math.PI * 2) / period;
       const cycle = j.phase / (Math.PI * 2);
-      const base = pulseCurve(cycle);
+      const base = pulseCurve(cycle) * amp;
       j.pulse = clamp(base + j.squeeze * (1 - base), 0, 1);
-      // 閉じている最中だけ上へ押し出す
+      // 閉じている最中に上へ押し出す (泳いでいる時ほど強い)。閉じ終えた後も惰性で少し進む
       const u = cycle - Math.floor(cycle);
       const unit = Math.min(width, height) / 14;
-      const push = u < CONTRACT ? THRUST * unit * j.size * Math.sin((Math.PI * u) / CONTRACT) * speed : 0;
+      const push =
+        u < CONTRACT ? THRUST * vigor * vigor * unit * j.size * Math.sin((Math.PI * u) / CONTRACT) * speed : 0;
       j.glide = smooth(j.glide, push, dt, GLIDE_ATTACK, GLIDE_RELEASE);
-      const thrust = j.glide;
+      const sink = (SINK_REST + (SINK_SWIM - SINK_REST) * vigor) * unit * j.size * speed;
 
-      // ゆるい上下の漂い (拍の kick は上向き)
-      const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick - thrust - (j.y - j.homeY) * HOME_SPRING;
+      // 上下: 推進と拍の kick で上へ、常にゆっくり沈む。小さな漂いを足す
+      const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick * vigor - j.glide + sink;
       j.x += j.vx * step;
       j.y += vy * dt;
       if (j.x < 0) {
