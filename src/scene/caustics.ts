@@ -3,7 +3,7 @@ import { mixRGB } from "./depth";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 
 /** 水底のうち光が揺れる帯の高さ (画面の高さに対する比率) */
-const FLOOR_BAND = 0.22;
+const FLOOR_BAND = 0.15;
 
 const rgba = (c: RGB, a: number): string =>
   `rgba(${c[0]},${c[1]},${c[2]},${Math.min(1, Math.max(0, a)).toFixed(3)})`;

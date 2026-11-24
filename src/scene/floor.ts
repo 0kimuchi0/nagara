@@ -209,15 +209,24 @@ export class Floor implements SceneElement {
     const stone: RGB = mixRGB(l.waterBottom, mixRGB(l.plant, l.ray, 0.5), 0.3);
     const sand = mixRGB(l.waterBottom, mixRGB(l.plant, l.ray, 0.5), 0.28);
     if (layer === "far") {
-      // 奥の床: 画面下部へ向かってかすむ帯と、遠くの茂み
-      const top = height * FAR_FLOOR_TOP;
-      const g = ctx.createLinearGradient(0, top, 0, height);
-      const c0 = hazed(stone, l, FAR_FLOOR_TOP, 0.1);
-      g.addColorStop(0, `rgba(${c0[0]},${c0[1]},${c0[2]},0)`);
-      g.addColorStop(1, `rgba(${c0[0]},${c0[1]},${c0[2]},0.6)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, top, width, height - top);
+      // 遠くの茂みの手前に、奥の床 (砂地) を敷く。奥ほど水の色にかすむ
       this.drawDistantGrowth(ctx, l);
+      const top = height * FAR_FLOOR_TOP;
+      const k = this.terrain[2];
+      const farTop = (x: number) => top + height * 0.006 * Math.sin((x / Math.max(1, width)) * 3.1 + k);
+      const step = Math.max(8, width / 120);
+      ctx.beginPath();
+      ctx.moveTo(0, height);
+      for (let x = 0; x <= width + step; x += step) ctx.lineTo(Math.min(x, width), farTop(Math.min(x, width)));
+      ctx.lineTo(width, height);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0, top, 0, height);
+      const far = hazed(sand, l, FAR_FLOOR_TOP, 0, 0.5);
+      const nearer = hazed(sand, l, 1, 0.45, 0.5);
+      g.addColorStop(0, `rgb(${far[0]},${far[1]},${far[2]})`);
+      g.addColorStop(1, `rgb(${nearer[0]},${nearer[1]},${nearer[2]})`);
+      ctx.fillStyle = g;
+      ctx.fill();
     }
     const list = this.shapes.filter((s) => layerOf(s.depth) === layer).sort((a, b) => a.depth - b.depth);
     const mossBase: RGB = mixRGB(l.plant, l.waterBottom, 0.25);

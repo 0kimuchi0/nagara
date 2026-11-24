@@ -102,3 +102,15 @@ describe("Plants planted in the substrate", () => {
     });
   });
 });
+
+describe("Far floor", () => {
+  it("is a solid sandy floor behind the substrate (far stones do not float in open water)", () => {
+    const f = new Floor(B, mulberry32(9));
+    const { ctx, calls } = stubCtx();
+    f.drawLayer(ctx, DAY, "far");
+    // 奥の床の帯を、不透明な色 (rgb) のグラデーションで塗る
+    const stops = calls.filter((c) => c.name === "addColorStop").map((c) => String(c.args[1]));
+    expect(stops.some((s) => s.startsWith("rgb("))).toBe(true);
+    for (const s of f.shapes.filter((x) => x.depth < 0.5)) expect(s.base).toBeGreaterThanOrEqual(B.height * 0.85 - 1);
+  });
+});
