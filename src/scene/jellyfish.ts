@@ -10,8 +10,11 @@ const Y_MAX = 0.7;
 const PERIOD = 3;
 /** 1 周期のうち、傘を閉じるのに使う割合。残りでゆっくり開く */
 export const CONTRACT = 0.3;
-/** 閉じる間に上へ進む速さ (px/s、傘の大きさに比例) */
-const THRUST = 28;
+/** 閉じる間に上へ進む最大の速さ (傘の基準の大きさ / 秒)。画面の大きさに合わせて伸び縮みする */
+const THRUST = 1.5;
+/** 推進の立ち上がりと、閉じ終えた後に惰性で進む時間の時定数 (秒) */
+const GLIDE_ATTACK = 0.08;
+const GLIDE_RELEASE = 0.35;
 
 const ease = (x: number): number => 0.5 - 0.5 * Math.cos(Math.PI * x);
 /** 周期内の位置 c (0..1、範囲外は折り返す) → 傘の閉じ具合 0..1 */
@@ -47,6 +50,8 @@ interface Body {
   /** 0 = 奥, 1 = 手前 */
   depth: number;
   kick: number;
+  /** 傘を閉じて得た上向きの速さ (px/s)。閉じ終えた後も少し惰性で残る */
+  glide: number;
   squeeze: number;
   squeezeHold: number;
   pulse: number;
@@ -87,10 +92,11 @@ export class Jellyfish implements SceneElement {
       vx: dir * (8 + this.rng() * 12),
       phase: this.rng() * Math.PI * 2,
       driftPhase: this.rng() * Math.PI * 2,
-      driftAmp: 6 + this.rng() * 6,
+      driftAmp: 2 + this.rng() * 2,
       size: 0.9 + this.rng() * 0.4,
       depth: 1,
       kick: 0,
+      glide: 0,
       squeeze: 0,
       squeezeHold: 0,
       pulse: 0,
@@ -176,7 +182,10 @@ export class Jellyfish implements SceneElement {
       j.pulse = clamp(base + j.squeeze * (1 - base), 0, 1);
       // 閉じている最中だけ上へ押し出す
       const u = cycle - Math.floor(cycle);
-      const thrust = u < CONTRACT ? THRUST * j.size * Math.sin((Math.PI * u) / CONTRACT) * speed : 0;
+      const unit = Math.min(width, height) / 14;
+      const push = u < CONTRACT ? THRUST * unit * j.size * Math.sin((Math.PI * u) / CONTRACT) * speed : 0;
+      j.glide = smooth(j.glide, push, dt, GLIDE_ATTACK, GLIDE_RELEASE);
+      const thrust = j.glide;
 
       // ゆるい上下の漂い (拍の kick は上向き)
       const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick - thrust - (j.y - j.homeY) * HOME_SPRING;

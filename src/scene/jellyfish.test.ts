@@ -189,3 +189,36 @@ describe("Jellyfish visible pulsing", () => {
     hi.forEach((v) => expect(v).toBeGreaterThan(0.9));
   });
 });
+
+describe("Jellyfish swims by contracting", () => {
+  it("rises at least half a bell height per contraction and sinks back while open", () => {
+    const B = { width: 1280, height: 720 };
+    const j = new Jellyfish(B, mulberry32(7));
+    run(j, 10); // 落ち着かせる
+    const internal = j as unknown as { jellies: Array<{ y: number; size: number; phase: number }> };
+    const unit = Math.min(B.width, B.height) / 14;
+    internal.jellies.forEach((b, i) => {
+      // この個体の次の 1 周期を測る
+      const startCycle = Math.floor(b.phase / (Math.PI * 2));
+      let rise = 0;
+      let sink = 0;
+      let prevY = b.y;
+      let guard = 0;
+      while (Math.floor(internal.jellies[i].phase / (Math.PI * 2)) < startCycle + 2 && guard++ < 1000) {
+        j.update(DT, silent);
+        const body = internal.jellies[i];
+        const c = body.phase / (Math.PI * 2) - Math.floor(body.phase / (Math.PI * 2));
+        const inNextCycle = Math.floor(body.phase / (Math.PI * 2)) === startCycle + 1;
+        if (inNextCycle) {
+          const dy = body.y - prevY;
+          if (c < CONTRACT) rise -= dy;
+          else sink += dy;
+        }
+        prevY = body.y;
+      }
+      const bellH = unit * b.size * 0.8;
+      expect(rise).toBeGreaterThan(bellH * 0.5);
+      expect(sink).toBeGreaterThan(rise * 0.4); // 開いている間に沈んで戻る
+    });
+  });
+});
