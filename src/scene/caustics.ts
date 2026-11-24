@@ -127,6 +127,27 @@ export class Caustics implements SceneElement {
       ctx.strokeStyle = rgba(light, (0.18 - i * 0.025) * k);
       ctx.stroke();
     }
+
+    // 水面のきらめき: 波の山で日光が反射して、小さな点が一瞬光っては消える
+    const glints = 40;
+    const white = mixRGB(light, [255, 255, 255], 0.6);
+    for (let i = 0; i < glints; i++) {
+      const hx = Math.sin(i * 12.9898) * 43758.5453;
+      const hy = Math.sin(i * 78.233) * 12345.678;
+      const u = hx - Math.floor(hx);
+      const w2 = hy - Math.floor(hy);
+      // 点ごとに違う周期でまたたく。鋭いピークだけを使って一瞬だけ光らせる
+      const tw = Math.sin(this.time * (1.3 + w2 * 1.7) + i * 2.1);
+      const flash = Math.pow(Math.max(0, tw), 12);
+      if (flash < 0.05) continue;
+      const x = ((u + this.time * 0.004 * (w2 - 0.5)) % 1 + 1) % 1 * width;
+      const y = band * (0.1 + 0.8 * w2);
+      const r = 0.8 + 1.8 * flash;
+      ctx.fillStyle = rgba(white, 0.7 * flash * k);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -163,8 +184,12 @@ export class Caustics implements SceneElement {
         else ctx.lineTo(x, y);
       }
       ctx.closePath();
-      ctx.lineWidth = 1 + 2.2 * v;
-      ctx.strokeStyle = rgba(light, 0.16 * fade * k);
+      // にじみ (太く薄い) → 芯 (細く明るい) の 2 回描きで、光の線が柔らかく光って見える
+      ctx.lineWidth = (1 + 2.2 * v) * 3.2;
+      ctx.strokeStyle = rgba(light, 0.035 * fade * k);
+      ctx.stroke();
+      ctx.lineWidth = 0.8 + 1.6 * v;
+      ctx.strokeStyle = rgba(mixRGB(light, [255, 255, 255], 0.3), 0.14 * fade * k);
       ctx.stroke();
     }
     ctx.restore();

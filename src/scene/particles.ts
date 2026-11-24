@@ -20,6 +20,7 @@ export class Particles implements SceneElement {
   private bounds: Bounds;
   private time = 0;
   private volume = 0;
+  private light: (x: number, y: number) => number = () => 0;
 
   constructor(b: Bounds, rng: () => number) {
     this.bounds = { ...b };
@@ -69,15 +70,26 @@ export class Particles implements SceneElement {
     this.drawLayer(ctx, l, "near");
   }
 
+  /** 光の筋にどれだけ照らされているかを返す関数 (0..1)。照らされた塵だけがきらめく */
+  setLight(fn: (x: number, y: number) => number): void {
+    this.light = fn;
+  }
+
   drawLayer(ctx: CanvasRenderingContext2D, l: Lighting, layer: Layer): void {
     // volume は平滑化済みの前提。急変させない
     const v = Math.min(1, Math.max(0, this.volume));
     const h = this.bounds.height || 1;
     for (const p of this.ps) {
       if (layerOf(p.depth) !== layer) continue;
-      const [r, g, b] = hazed(l.ray, l, p.y / h, p.depth, 0.35);
-      // 奥は小さくかすかに、手前は大きくぼんやりと (中心が明るく縁が薄い)
-      const a = (0.1 + v * 0.3) * (0.6 + 0.6 * p.depth) * (p.depth > 0.75 ? 0.6 : 1);
+      const lit = Math.min(1, Math.max(0, this.light(p.x, p.y))) * Math.min(1, l.rayIntensity * 1.4);
+      const base: [number, number, number] = [
+        Math.min(255, l.ray[0] + 40 * lit),
+        Math.min(255, l.ray[1] + 40 * lit),
+        Math.min(255, l.ray[2] + 40 * lit),
+      ];
+      const [r, g, b] = hazed(base, l, p.y / h, p.depth, 0.35);
+      // 奥は小さくかすかに、手前は大きくぼんやりと。光の筋の中にある塵ほど明るい
+      const a = (0.07 + v * 0.2 + 0.5 * lit) * (0.6 + 0.6 * p.depth) * (p.depth > 0.75 ? 0.6 : 1);
       ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(1, a).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);

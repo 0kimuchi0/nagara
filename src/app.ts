@@ -57,6 +57,8 @@ export function startApp(canvas: HTMLCanvasElement): void {
   const bubbles = new Bubbles(bounds, rng)
   const caustics = new Caustics(bounds, rng)
   const elements: SceneElement[] = [rays, caustics, particles, jellyfish, floor, plants, bubbles]
+  // 光の筋の中を漂う塵だけがきらめく
+  particles.setLight((x, y) => rays.coverage(x, y))
   window.addEventListener('resize', () => {
     applySize()
     for (const e of elements) e.resize(bounds)
