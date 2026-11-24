@@ -169,40 +169,158 @@ export function drawWood(
 }
 
 /** index から決まる 0..1 の擬似乱数 (乱数列を消費しない) */
-const hash = (i: number): number => {
+export const hash = (i: number): number => {
   const s = Math.sin(i * 127.1 + 311.7) * 43758.5453;
   return s - Math.floor(s);
 };
 
-/** 底砂: 帯の上に小石を散らす。小石は手前 (下) ほど大きい */
-export function drawGravel(
+export interface Pebble {
+  x: number;
+  y: number;
+  r: number;
+  /** 0 = 底床の上の縁 (奥) 〜 1 = 画面の下端 (手前) */
+  v: number;
+  tone: number;
+  tilt: number;
+}
+
+export interface Tuft {
+  x: number;
+  y: number;
+  blades: number;
+  len: number;
+  seed: number;
+}
+
+export interface GroundLook {
+  sand: RGB;
+  light: RGB;
+  grass: RGB;
+}
+
+/** 底床: 起伏のある上の縁から画面の下端まで。上の縁に光、下ほど暗く、細かい砂粒を散らす */
+export function drawSubstrate(
   ctx: CanvasRenderingContext2D,
   width: number,
-  top: number,
-  bottom: number,
-  sand: RGB,
-  light: RGB,
+  height: number,
+  top: (x: number) => number,
+  look: GroundLook,
   seed: number,
 ): void {
-  const band = bottom - top;
-  const g = ctx.createLinearGradient(0, top, 0, bottom);
-  g.addColorStop(0, rgb(mixRGB(sand, light, 0.18)));
-  g.addColorStop(1, rgb(darken(sand, 0.2)));
+  const step = Math.max(6, width / 140);
+  let minTop = height;
+  ctx.beginPath();
+  ctx.moveTo(0, height);
+  for (let x = 0; x <= width + step; x += step) {
+    const px = Math.min(x, width);
+    const y = top(px);
+    minTop = Math.min(minTop, y);
+    ctx.lineTo(px, y);
+  }
+  ctx.lineTo(width, height);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, minTop, 0, height);
+  g.addColorStop(0, rgb(mixRGB(look.sand, look.light, 0.22)));
+  g.addColorStop(0.35, rgb(look.sand));
+  g.addColorStop(1, rgb(darken(look.sand, 0.35)));
   ctx.fillStyle = g;
-  ctx.fillRect(0, top, width, band);
-  const n = Math.max(20, Math.round(width / 7));
-  for (let i = 0; i < n; i++) {
-    const a = hash(i + seed * 1000);
-    const b = hash(i * 3.1 + seed * 777);
-    const c = hash(i * 7.7 + seed * 333);
-    const v = b; // 0 = 帯の上 (奥) 〜 1 = 下 (手前)
-    const px = a * width;
-    const py = top + band * (0.15 + 0.8 * v);
-    const r = 1 + (1.2 + 2.6 * c) * (0.5 + 0.5 * v);
-    const tone = c < 0.33 ? darken(sand, 0.25) : c < 0.66 ? mixRGB(sand, light, 0.3) : darken(sand, 0.1);
-    ctx.fillStyle = rgb(tone);
+  ctx.fill();
+
+  // 上の縁: 光がかすめて明るい
+  ctx.beginPath();
+  for (let x = 0; x <= width + step; x += step) {
+    const px = Math.min(x, width);
+    if (x === 0) ctx.moveTo(px, top(px) + 0.8);
+    else ctx.lineTo(px, top(px) + 0.8);
+  }
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = rgba(mixRGB(look.sand, look.light, 0.6), 0.55);
+  ctx.stroke();
+
+  // 細かい砂粒: 明るい粒と暗い粒を交互に
+  const grains = Math.round(width / 2.5);
+  const lightGrain = rgba(mixRGB(look.sand, look.light, 0.45), 0.55);
+  const darkGrain = rgba(darken(look.sand, 0.4), 0.45);
+  for (let i = 0; i < grains; i++) {
+    const x = hash(i * 1.71 + seed * 91) * width;
+    const v = hash(i * 2.93 + seed * 57);
+    const t = top(x);
+    const y = t + 1 + (height - t - 1) * v;
+    const s = 0.6 + 1.1 * v;
+    ctx.fillStyle = i % 2 === 0 ? lightGrain : darkGrain;
+    ctx.fillRect(x, y, s, s * 0.7);
+  }
+}
+
+/** 小石: 下に落ちる影、本体、光の当たる上面の 3 つで立体的に */
+export function drawPebbles(ctx: CanvasRenderingContext2D, pebbles: ReadonlyArray<Pebble>, look: GroundLook): void {
+  const shadow = rgba(darken(look.sand, 0.6), 0.35);
+  for (const p of pebbles) {
+    ctx.fillStyle = shadow;
     ctx.beginPath();
-    ctx.ellipse(px, py, r * 1.3, r * 0.8, (c - 0.5) * 0.8, 0, Math.PI * 2);
+    ctx.ellipse(p.x + p.r * 0.25, p.y + p.r * 0.45, p.r * 1.35, p.r * 0.55, p.tilt, 0, Math.PI * 2);
     ctx.fill();
+    const body = p.tone < 0.33 ? darken(look.sand, 0.3) : p.tone < 0.66 ? mixRGB(look.sand, look.light, 0.25) : darken(look.sand, 0.12);
+    ctx.fillStyle = rgb(body);
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, p.r * 1.3, p.r * 0.8, p.tilt, 0, Math.PI * 2);
+    ctx.fill();
+    if (p.r > 1.6) {
+      ctx.fillStyle = rgba(mixRGB(body, look.light, 0.55), 0.6);
+      ctx.beginPath();
+      ctx.ellipse(p.x - p.r * 0.3, p.y - p.r * 0.35, p.r * 0.55, p.r * 0.25, p.tilt, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/** 物が地面に接する所の影 (石や流木の足元) */
+export function drawContactShadow(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, sand: RGB, strength: number): void {
+  ctx.fillStyle = rgba(darken(sand, 0.7), 0.3 * strength);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = rgba(darken(sand, 0.8), 0.22 * strength);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx * 0.7, ry * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** 前景草の小さな茂み: 細い葉が数本、根元から扇形に。ゆっくりそよぐ */
+export function drawTufts(ctx: CanvasRenderingContext2D, tufts: ReadonlyArray<Tuft>, look: GroundLook, time: number): void {
+  ctx.lineCap = "round";
+  for (const t of tufts) {
+    const sway = Math.sin(time * 1.3 + t.seed * 10) * 0.18;
+    for (let b = 0; b < t.blades; b++) {
+      const u = t.blades === 1 ? 0 : (b / (t.blades - 1)) * 2 - 1;
+      const len = t.len * (0.7 + 0.3 * hash(t.seed * 50 + b));
+      const ang = u * 0.7 + sway * (0.6 + 0.4 * Math.abs(u));
+      const tipX = t.x + u * 3 + Math.sin(ang) * len;
+      const tipY = t.y - Math.cos(ang) * len;
+      const c = b % 2 === 0 ? look.grass : mixRGB(look.grass, look.light, 0.2);
+      ctx.strokeStyle = rgb(c);
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(t.x + u * 2, t.y);
+      ctx.quadraticCurveTo(t.x + u * 3 + Math.sin(ang) * len * 0.3, t.y - len * 0.55, tipX, tipY);
+      ctx.stroke();
+    }
+  }
+}
+
+/** 落ち葉: 小さな茶色い葉が少しだけ */
+export function drawLeaves(ctx: CanvasRenderingContext2D, leaves: ReadonlyArray<Pebble>, look: GroundLook): void {
+  const brown: RGB = [Math.round(look.sand[0] * 0.9 + 25), Math.round(look.sand[1] * 0.7 + 5), Math.round(look.sand[2] * 0.45)];
+  for (const l of leaves) {
+    ctx.fillStyle = rgba(brown, 0.85);
+    ctx.beginPath();
+    ctx.ellipse(l.x, l.y, l.r * 2.2, l.r * 0.9, l.tilt, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = rgba(darken(brown, 0.4), 0.6);
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(l.x - Math.cos(l.tilt) * l.r * 2, l.y - Math.sin(l.tilt) * l.r * 2);
+    ctx.lineTo(l.x + Math.cos(l.tilt) * l.r * 2, l.y + Math.sin(l.tilt) * l.r * 2);
+    ctx.stroke();
   }
 }

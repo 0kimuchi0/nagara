@@ -65,6 +65,8 @@ export function startApp(canvas: HTMLCanvasElement): void {
     applySize()
     for (const e of elements) e.resize(bounds)
   })
+  // 手前の水草は底床の起伏の上に植わる
+  plants.setGround((x) => floor.terrainTop(x))
 
   let mic: MicSource | null = null
   const beats = new BeatDetector()
