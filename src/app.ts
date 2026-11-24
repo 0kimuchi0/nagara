@@ -3,6 +3,7 @@ import type { MicSource } from './audio/microphone'
 import { currentHour, lightingAt, parseHourOverride } from './palette'
 import { mulberry32 } from './random'
 import { Bubbles } from './scene/bubbles'
+import { Caustics } from './scene/caustics'
 import { Floor } from './scene/floor'
 import { Jellyfish } from './scene/jellyfish'
 import { LightRays } from './scene/lightRays'
@@ -25,9 +26,9 @@ function drawVignette(ctx: CanvasRenderingContext2D, b: Bounds): void {
   const cx = b.width / 2
   const cy = b.height * 0.45
   const r = Math.hypot(b.width, b.height) * 0.6
-  const g = ctx.createRadialGradient(cx, cy, r * 0.45, cx, cy, r)
+  const g = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r)
   g.addColorStop(0, 'rgba(0,0,0,0)')
-  g.addColorStop(1, 'rgba(0,0,0,0.38)')
+  g.addColorStop(1, 'rgba(0,0,0,0.2)')
   ctx.fillStyle = g
   ctx.fillRect(0, 0, b.width, b.height)
 }
@@ -54,7 +55,8 @@ export function startApp(canvas: HTMLCanvasElement): void {
   const floor = new Floor(bounds, rng)
   const plants = new Plants(bounds, rng)
   const bubbles = new Bubbles(bounds, rng)
-  const elements: SceneElement[] = [rays, particles, jellyfish, floor, plants, bubbles]
+  const caustics = new Caustics(bounds, rng)
+  const elements: SceneElement[] = [rays, caustics, particles, jellyfish, floor, plants, bubbles]
   window.addEventListener('resize', () => {
     applySize()
     for (const e of elements) e.resize(bounds)
@@ -108,13 +110,15 @@ export function startApp(canvas: HTMLCanvasElement): void {
     grad.addColorStop(1, `rgb(${br | 0},${bg | 0},${bb | 0})`)
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, bounds.width, bounds.height)
-    // 奥から手前へ：光の筋 → 奥の粒・床・水草 → 海月 → 手前の床・水草 → 泡 → 手前の粒 → 周辺減光
+    // 奥から手前へ：光の筋・水面 → 奥の粒・床・水草 → 海月 → 手前の床・水底の光・水草 → 泡 → 手前の粒 → 周辺減光
     rays.draw(ctx, lighting)
+    caustics.drawSurface(ctx, lighting)
     particles.drawLayer(ctx, lighting, 'far')
     floor.drawLayer(ctx, lighting, 'far')
     plants.drawLayer(ctx, lighting, 'far')
     jellyfish.draw(ctx, lighting)
     floor.drawLayer(ctx, lighting, 'near')
+    caustics.drawFloor(ctx, lighting)
     plants.drawLayer(ctx, lighting, 'near')
     bubbles.draw(ctx, lighting)
     particles.drawLayer(ctx, lighting, 'near')

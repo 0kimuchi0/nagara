@@ -17,7 +17,7 @@ export const waterAt = (l: Lighting, yFrac: number): RGB =>
   mixRGB(l.waterTop, l.waterBottom, Math.min(1, Math.max(0, yFrac)));
 
 /** 奥ほど水の色にかすむ割合 (0..max) */
-export const hazeOf = (depth: number, max = 0.65): number => (1 - Math.min(1, Math.max(0, depth))) * max;
+export const hazeOf = (depth: number, max = 0.45): number => (1 - Math.min(1, Math.max(0, depth))) * max;
 
 /** 色を、その高さの水の色へ奥行きに応じてかすませる */
 export const hazed = (c: RGB, l: Lighting, yFrac: number, depth: number, max?: number): RGB =>

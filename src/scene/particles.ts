@@ -75,7 +75,7 @@ export class Particles implements SceneElement {
     const h = this.bounds.height || 1;
     for (const p of this.ps) {
       if (layerOf(p.depth) !== layer) continue;
-      const [r, g, b] = hazed(l.ray, l, p.y / h, p.depth, 0.5);
+      const [r, g, b] = hazed(l.ray, l, p.y / h, p.depth, 0.35);
       // 奥は小さくかすかに、手前は大きくぼんやりと (中心が明るく縁が薄い)
       const a = (0.1 + v * 0.3) * (0.6 + 0.6 * p.depth) * (p.depth > 0.75 ? 0.6 : 1);
       ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(1, a).toFixed(3)})`;

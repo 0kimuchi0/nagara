@@ -213,7 +213,7 @@ export class Jellyfish implements SceneElement {
         ctx,
         { x: j.x, y: j.y, unit: unit * j.size, pulse: j.pulse, phase: j.phase, velX: j.velX, velY: j.velY },
         this.time,
-        hazed(l.ray, l, j.y / h, j.depth, 0.55),
+        hazed(l.ray, l, j.y / h, j.depth, 0.4),
         baseGlow * (0.45 + 0.55 * j.depth),
       );
     }
