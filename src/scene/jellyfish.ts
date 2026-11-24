@@ -2,6 +2,7 @@ import type { Lighting } from "../palette";
 import { smooth } from "../audio/analysis";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 import { drawJelly } from "./jellyDraw";
+import { hazed } from "./depth";
 
 const Y_MIN = 0.1;
 const Y_MAX = 0.7;
@@ -43,6 +44,8 @@ interface Body {
   driftPhase: number;
   driftAmp: number;
   size: number;
+  /** 0 = 奥, 1 = 手前 */
+  depth: number;
   kick: number;
   squeeze: number;
   squeezeHold: number;
@@ -68,15 +71,15 @@ export class Jellyfish implements SceneElement {
     for (let i = 0; i < n; i++) this.jellies.push(this.make(i, n));
   }
 
-  get bodies(): ReadonlyArray<{ x: number; y: number; pulse: number }> {
-    return this.jellies;
+  get bodies(): ReadonlyArray<{ x: number; y: number; pulse: number; depth: number; scale: number }> {
+    return this.jellies.map((j) => ({ x: j.x, y: j.y, pulse: j.pulse, depth: j.depth, scale: j.size }));
   }
 
   private make(index: number, total: number): Body {
     const { width, height } = this.bounds;
     const dir = this.rng() < 0.5 ? -1 : 1;
     const homeY = height * (0.35 + this.rng() * 0.25);
-    return {
+    const made: Body = {
       // 横方向に等間隔 + 少しのばらつき
       x: width * (0.15 + 0.7 * ((index + 0.5 + (this.rng() - 0.5) * 0.4) / total)),
       y: homeY,
@@ -86,6 +89,7 @@ export class Jellyfish implements SceneElement {
       driftPhase: this.rng() * Math.PI * 2,
       driftAmp: 6 + this.rng() * 6,
       size: 0.9 + this.rng() * 0.4,
+      depth: 1,
       kick: 0,
       squeeze: 0,
       squeezeHold: 0,
@@ -93,6 +97,14 @@ export class Jellyfish implements SceneElement {
       velX: 0,
       velY: 0,
     };
+    // 奥行きを匹ごとにずらす (index 順に奥→手前、少しばらつき)
+    const depth = Math.min(1, 0.2 + 0.8 * ((index + 0.3 + this.rng() * 0.4) / total));
+    const body = made;
+    body.depth = depth;
+    body.size *= 0.5 + 0.5 * depth; // 奥ほど小さい
+    body.vx *= 0.45 + 0.55 * depth; // 奥ほどゆっくり (視差)
+    body.driftAmp *= 0.5 + 0.5 * depth;
+    return body;
   }
 
   /** 傘の半幅 (px) */
@@ -191,15 +203,18 @@ export class Jellyfish implements SceneElement {
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
     ctx.save();
-    const glow = clamp(l.jellyGlow * 0.7 + this.volume * 0.4, 0, 1);
+    const baseGlow = clamp(l.jellyGlow * 0.7 + this.volume * 0.4, 0, 1);
     const unit = Math.min(this.bounds.width, this.bounds.height) / 14;
-    for (const j of this.jellies) {
+    const h = this.bounds.height || 1;
+    // 奥の個体から描き、手前の個体が上に重なるようにする
+    const order = [...this.jellies].sort((a, b) => a.depth - b.depth);
+    for (const j of order) {
       drawJelly(
         ctx,
         { x: j.x, y: j.y, unit: unit * j.size, pulse: j.pulse, phase: j.phase, velX: j.velX, velY: j.velY },
         this.time,
-        l.ray,
-        glow,
+        hazed(l.ray, l, j.y / h, j.depth, 0.55),
+        baseGlow * (0.45 + 0.55 * j.depth),
       );
     }
     ctx.restore();

@@ -3,28 +3,7 @@ import { drawJelly, type JellyPose } from "./jellyDraw";
 import { Jellyfish } from "./jellyfish";
 import { mulberry32 } from "../random";
 import { NIGHT } from "../palette";
-
-/** 呼び出しを記録するだけの Canvas 代用品 */
-function stubCtx() {
-  const calls: Array<{ name: string; args: unknown[] }> = [];
-  const gradient = { addColorStop: (..._a: unknown[]) => {} };
-  const ctx = new Proxy({} as Record<string, unknown>, {
-    get(target, prop: string) {
-      if (prop in target) return target[prop];
-      return (...args: unknown[]) => {
-        calls.push({ name: prop, args });
-        if (prop === "createRadialGradient" || prop === "createLinearGradient") return gradient;
-        return undefined;
-      };
-    },
-    set(target, prop: string, value) {
-      target[prop] = value;
-      calls.push({ name: `set:${prop}`, args: [value] });
-      return true;
-    },
-  });
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
-}
+import { stubCtx } from "../test/stubCtx";
 
 const pose: JellyPose = { x: 300, y: 200, unit: 50, pulse: 0.4, phase: 1, velX: 20, velY: -30 };
 
