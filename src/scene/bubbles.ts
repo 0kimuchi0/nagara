@@ -1,4 +1,6 @@
 import type { Lighting } from "../palette";
+import { mixRGB } from "./depth";
+import { drawBubble } from "./bubbleDraw";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 
 export const MAX_BUBBLES = 120;
@@ -81,20 +83,9 @@ export class Bubbles implements SceneElement {
   }
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
-    const [lr, lg, lb] = l.ray;
-    const fill = `rgba(${lr},${lg},${lb},0.12)`;
-    for (const b of this.bubbles) {
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-      ctx.fillStyle = fill;
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = `rgba(255,255,255,0.45)`;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(b.x - b.r * 0.35, b.y - b.r * 0.35, Math.max(0.6, b.r * 0.25), 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.fill();
-    }
+    const light = mixRGB(l.ray, [255, 255, 255], 0.4);
+    ctx.save();
+    for (const b of this.bubbles) drawBubble(ctx, b.x, b.y, b.r, light, Math.sin(b.y * 0.15));
+    ctx.restore();
   }
 }
