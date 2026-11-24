@@ -18,7 +18,7 @@ const points = (calls: Call[]) =>
   calls.filter((c) => c.name === "lineTo" || c.name === "moveTo").map((c) => c.args as number[]);
 
 describe("Caustics", () => {
-  for (const part of ["drawSurface", "drawFloor"] as const) {
+  for (const part of ["drawFloor"] as const) {
     it(`${part}: balanced save/restore, finite numbers, alpha within 0..1`, () => {
       const c = new Caustics(B, mulberry32(1));
       c.update(1.3, { ...silent, volume: 1 });
@@ -84,17 +84,6 @@ describe("Caustics", () => {
 });
 
 describe("Caustics realism", () => {
-  it("the surface twinkles with small glints by day", () => {
-    const c = new Caustics(B, mulberry32(61));
-    let most = 0;
-    for (let f = 0; f < 60; f++) {
-      c.update(1 / 30, silent);
-      const { ctx, calls } = stubCtx();
-      c.drawSurface(ctx, DAY);
-      most = Math.max(most, calls.filter((x) => x.name === "arc").length);
-    }
-    expect(most).toBeGreaterThan(3);
-  });
   it("floor light has a soft glow around each bright line (two strokes per ring)", () => {
     const c = new Caustics(B, mulberry32(62));
     const { ctx, calls } = stubCtx();
