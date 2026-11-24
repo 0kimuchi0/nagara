@@ -25,8 +25,11 @@ interface Plant {
 /** 種類ごとの高さの倍率 (剣状の葉は低く広がる) */
 const KIND_HEIGHT: Record<PlantKind, number> = { ribbon: 1.15, stem: 0.8, sword: 0.5 };
 
-/** 奥の株ほど床の奥 (画面ではやや上) に生える */
-const FLOOR_DEPTH = 0.05;
+/** 奥の層の株が生える床の高さ (画面の高さに対する比率)。奥ほど上 */
+const FAR_GROUND_TOP = 0.85;
+const FAR_GROUND_BOTTOM = 0.9;
+/** 手前の株を底床にどれだけ埋めるか (px) */
+const PLANT_SINK = 6;
 
 export class Plants implements SceneElement {
   private plants: Plant[] = [];
@@ -85,8 +88,24 @@ export class Plants implements SceneElement {
     return p.width * (0.35 + 1.5 * p.depth * p.depth);
   }
 
+  /** 手前の底床の上の縁 (x → y)。未設定なら画面の下端 */
+  private ground: (x: number) => number = () => this.bounds.height;
+
+  /** 手前の株を植える底床の高さを渡す */
+  setGround(fn: (x: number) => number): void {
+    this.ground = fn;
+  }
+
   private baseOf(p: Plant): number {
-    return this.bounds.height * (1 - FLOOR_DEPTH * (1 - p.depth));
+    const H = this.bounds.height;
+    if (p.depth >= 0.5) return Math.min(H, this.ground(p.nx * this.bounds.width) + PLANT_SINK);
+    return H * (FAR_GROUND_TOP + (FAR_GROUND_BOTTOM - FAR_GROUND_TOP) * p.depth * 2);
+  }
+
+  /** i 番目の株の根元の y */
+  rootY(i: number): number {
+    const p = this.plants[i];
+    return p ? this.baseOf(p) : this.bounds.height;
   }
 
   /** テスト・確認用: 各株の奥行きと見かけの高さ・太さ */

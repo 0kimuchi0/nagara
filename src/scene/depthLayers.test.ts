@@ -66,8 +66,9 @@ describe("Floor depth", () => {
     const near = f.shapes.filter((s) => s.depth >= 0.5);
     expect(far.length).toBeGreaterThan(0);
     expect(near.length).toBeGreaterThan(0);
-    for (const s of near) expect(s.base).toBe(B.height);
-    for (const s of far) expect(s.base).toBeLessThan(B.height);
+    // 奥の石は手前の石より画面の上 (奥) にある。手前の石は底床に置かれる (ground.test.ts)
+    const nearMin = Math.min(...near.map((s) => s.base));
+    for (const s of far) expect(s.base).toBeLessThan(nearMin);
   });
 });
 
