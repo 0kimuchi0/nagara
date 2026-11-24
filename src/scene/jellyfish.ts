@@ -1,6 +1,7 @@
 import type { Lighting } from "../palette";
 import { smooth } from "../audio/analysis";
 import type { Bounds, SceneElement, Stimulus } from "./types";
+import { drawJelly } from "./jellyDraw";
 
 const Y_MIN = 0.1;
 const Y_MAX = 0.7;
@@ -15,7 +16,8 @@ const SQUEEZE_ATTACK = 0.06;
 const SQUEEZE_RELEASE = 0.5;
 /** 基準高さへ戻るばね定数 (1/s)。拍で上がっても沈んで戻る */
 const HOME_SPRING = 1.2;
-const TENTACLES = 5;
+/** なびき用速度の平滑化の時定数 (秒) */
+const VEL_TAU = 0.4;
 /** 傘どうしがこの倍率 x 傘の幅より近づくと、横方向に互いを押し離す */
 const SEPARATION = 1.5;
 /** 重なり率 1 のときの押し離し速度 (px/s) */
@@ -34,6 +36,8 @@ interface Body {
   squeeze: number;
   squeezeHold: number;
   pulse: number;
+  velX: number;
+  velY: number;
 }
 
 const countFor = (b: Bounds): number => (b.width < 600 ? 2 : 3);
@@ -75,6 +79,8 @@ export class Jellyfish implements SceneElement {
       squeeze: 0,
       squeezeHold: 0,
       pulse: 0,
+      velX: 0,
+      velY: 0,
     };
   }
 
@@ -130,6 +136,7 @@ export class Jellyfish implements SceneElement {
     this.time += step;
     this.volume = s.volume;
     const { width, height } = this.bounds;
+    const prev = this.jellies.map((j) => [j.x, j.y]);
     for (const j of this.jellies) {
       if (s.beat) {
         j.kick = KICK;
@@ -158,55 +165,27 @@ export class Jellyfish implements SceneElement {
       j.y = clamp(j.y, height * Y_MIN, height * Y_MAX);
     }
     this.separate(dt);
-    for (const j of this.jellies) j.x = clamp(j.x, 0, width);
+    this.jellies.forEach((j, i) => {
+      j.x = clamp(j.x, 0, width);
+      if (dt > 0) {
+        j.velX = smooth(j.velX, (j.x - prev[i][0]) / dt, dt, VEL_TAU, VEL_TAU);
+        j.velY = smooth(j.velY, (j.y - prev[i][1]) / dt, dt, VEL_TAU, VEL_TAU);
+      }
+    });
   }
 
   draw(ctx: CanvasRenderingContext2D, l: Lighting): void {
     ctx.save();
     const glow = clamp(l.jellyGlow * 0.7 + this.volume * 0.4, 0, 1);
-    const [r, g, b] = l.ray;
     const unit = Math.min(this.bounds.width, this.bounds.height) / 14;
     for (const j of this.jellies) {
-      const w = unit * j.size * (1.1 - 0.35 * j.pulse);
-      const h = unit * j.size * (0.8 + 0.3 * j.pulse);
-      const x = j.x;
-      const y = j.y;
-
-      // 発光
-      const halo = ctx.createRadialGradient(x, y, 0, x, y, w * 2.2);
-      halo.addColorStop(0, `rgba(${r},${g},${b},${0.35 * glow})`);
-      halo.addColorStop(1, `rgba(${r},${g},${b},0)`);
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(x, y, w * 2.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 触手
-      ctx.lineWidth = 1.2;
-      ctx.strokeStyle = `rgba(${r},${g},${b},${0.3 + 0.3 * glow})`;
-      for (let i = 0; i < TENTACLES; i++) {
-        const tx = x + ((i / (TENTACLES - 1)) * 2 - 1) * w * 0.7;
-        const len = h * (2.2 + (i % 2) * 0.8);
-        ctx.beginPath();
-        ctx.moveTo(tx, y);
-        const segs = 6;
-        for (let k = 1; k <= segs; k++) {
-          const t = k / segs;
-          const sway = Math.sin(this.time * 1.6 + j.phase * 0.3 + i * 0.9 - t * 3) * w * 0.15 * t;
-          ctx.lineTo(tx + sway, y + len * t);
-        }
-        ctx.stroke();
-      }
-
-      // 傘 (半楕円)
-      ctx.beginPath();
-      ctx.ellipse(x, y, w, h, 0, Math.PI, Math.PI * 2);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${r},${g},${b},${0.18 + 0.25 * glow})`;
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = `rgba(255,255,255,${0.3 + 0.3 * glow})`;
-      ctx.stroke();
+      drawJelly(
+        ctx,
+        { x: j.x, y: j.y, unit: unit * j.size, pulse: j.pulse, phase: j.phase, velX: j.velX, velY: j.velY },
+        this.time,
+        l.ray,
+        glow,
+      );
     }
     ctx.restore();
   }
