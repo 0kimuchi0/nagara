@@ -86,7 +86,7 @@ describe("Jellyfish", () => {
     expect(j.bodies.length).toBe(2);
   });
 
-  it("steady beats do not pin jellyfish at the top; they settle back after beats stop", () => {
+  it("steady beats do not pin jellyfish at the top, during or after the beats", () => {
     const H = 800;
     const j = new Jellyfish({ width: 1200, height: H }, mulberry32(7));
     const sum = j.bodies.map(() => 0);
@@ -108,8 +108,7 @@ describe("Jellyfish", () => {
     });
     run(j, 10);
     j.bodies.forEach((b) => {
-      expect(b.y).toBeGreaterThan(0.25 * H);
-      expect(b.y).toBeLessThan(0.65 * H);
+      expect(b.y).toBeGreaterThan(0.1 * H + 20);
     });
   });
 });
@@ -190,35 +189,61 @@ describe("Jellyfish visible pulsing", () => {
   });
 });
 
-describe("Jellyfish swims by contracting", () => {
-  it("rises at least half a bell height per contraction and sinks back while open", () => {
-    const B = { width: 1280, height: 720 };
+type Internal = { jellies: Array<{ y: number; size: number; phase: number; mode: "swim" | "rest"; pulse: number }> };
+
+describe("Jellyfish swims in bouts", () => {
+  const B = { width: 1280, height: 720 };
+  const unit = Math.min(B.width, B.height) / 14;
+
+  it("while swimming, each contraction lifts the jelly by at least one bell height", () => {
     const j = new Jellyfish(B, mulberry32(7));
-    run(j, 10); // 落ち着かせる
-    const internal = j as unknown as { jellies: Array<{ y: number; size: number; phase: number }> };
-    const unit = Math.min(B.width, B.height) / 14;
+    const internal = j as unknown as Internal;
     internal.jellies.forEach((b, i) => {
-      // この個体の次の 1 周期を測る
-      const startCycle = Math.floor(b.phase / (Math.PI * 2));
-      let rise = 0;
-      let sink = 0;
-      let prevY = b.y;
+      expect(b.mode).toBe("swim");
+      // 次に閉じ始めるところまで進めてから、閉じている間の上昇を測る
       let guard = 0;
-      while (Math.floor(internal.jellies[i].phase / (Math.PI * 2)) < startCycle + 2 && guard++ < 1000) {
+      const cyc = () => internal.jellies[i].phase / (Math.PI * 2);
+      const start = Math.floor(cyc()) + 1;
+      while (cyc() < start && guard++ < 1000) j.update(DT, silent);
+      const y0 = internal.jellies[i].y;
+      let minY = y0;
+      while (cyc() < start + CONTRACT && guard++ < 2000) {
         j.update(DT, silent);
-        const body = internal.jellies[i];
-        const c = body.phase / (Math.PI * 2) - Math.floor(body.phase / (Math.PI * 2));
-        const inNextCycle = Math.floor(body.phase / (Math.PI * 2)) === startCycle + 1;
-        if (inNextCycle) {
-          const dy = body.y - prevY;
-          if (c < CONTRACT) rise -= dy;
-          else sink += dy;
-        }
-        prevY = body.y;
+        minY = Math.min(minY, internal.jellies[i].y);
       }
       const bellH = unit * b.size * 0.8;
-      expect(rise).toBeGreaterThan(bellH * 0.5);
-      expect(sink).toBeGreaterThan(rise * 0.4); // 開いている間に沈んで戻る
+      expect(y0 - minY).toBeGreaterThan(bellH);
     });
+  });
+
+  it("over a minute each jelly swims up a long way and sinks back down (not just bobbing in place)", () => {
+    const j = new Jellyfish(B, mulberry32(8));
+    const ys = j.bodies.map(() => [] as number[]);
+    for (let f = 0; f < 60 * 60; f++) {
+      j.update(DT, silent);
+      j.bodies.forEach((b, k) => ys[k].push(b.y));
+    }
+    for (const y of ys) {
+      expect(Math.max(...y) - Math.min(...y)).toBeGreaterThan(B.height * 0.3);
+    }
+  });
+
+  it("while resting the bell pulses gently and the jelly sinks", () => {
+    const j = new Jellyfish(B, mulberry32(9));
+    const internal = j as unknown as Internal;
+    let guard = 0;
+    while (!internal.jellies.some((b) => b.mode === "rest") && guard++ < 60 * 60) j.update(DT, silent);
+    const k = internal.jellies.findIndex((b) => b.mode === "rest");
+    expect(k).toBeGreaterThanOrEqual(0);
+    run(j, 2); // 休みに切り替わった勢いが落ち着くまで待つ
+    const y0 = internal.jellies[k].y;
+    let maxPulse = 0;
+    for (let f = 0; f < 3 * 60; f++) {
+      j.update(DT, silent);
+      maxPulse = Math.max(maxPulse, internal.jellies[k].pulse);
+    }
+    expect(internal.jellies[k].mode).toBe("rest");
+    expect(maxPulse).toBeLessThan(0.6);
+    expect(internal.jellies[k].y).toBeGreaterThan(y0); // 沈んでいる (画面の y は下向き)
   });
 });
