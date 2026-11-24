@@ -4,6 +4,7 @@ import { currentHour, lightingAt, parseHourOverride } from './palette'
 import { mulberry32 } from './random'
 import { Bubbles } from './scene/bubbles'
 import { Caustics } from './scene/caustics'
+import { WaterSurface } from './scene/surface'
 import { Floor } from './scene/floor'
 import { Jellyfish } from './scene/jellyfish'
 import { LightRays } from './scene/lightRays'
@@ -56,7 +57,8 @@ export function startApp(canvas: HTMLCanvasElement): void {
   const plants = new Plants(bounds, rng)
   const bubbles = new Bubbles(bounds, rng)
   const caustics = new Caustics(bounds, rng)
-  const elements: SceneElement[] = [rays, caustics, particles, jellyfish, floor, plants, bubbles]
+  const surface = new WaterSurface(bounds, rng)
+  const elements: SceneElement[] = [rays, surface, caustics, particles, jellyfish, floor, plants, bubbles]
   // 光の筋の中を漂う塵だけがきらめく
   particles.setLight((x, y) => rays.coverage(x, y))
   window.addEventListener('resize', () => {
@@ -116,7 +118,7 @@ export function startApp(canvas: HTMLCanvasElement): void {
     ctx.fillRect(0, 0, bounds.width, bounds.height)
     // 奥から手前へ：光の筋・水面 → 奥の粒・床・水草 → 海月 → 手前の床・水底の光・水草 → 泡 → 手前の粒 → 周辺減光
     rays.draw(ctx, lighting)
-    caustics.drawSurface(ctx, lighting)
+    surface.draw(ctx, lighting)
     particles.drawLayer(ctx, lighting, 'far')
     floor.drawLayer(ctx, lighting, 'far')
     plants.drawLayer(ctx, lighting, 'far')
