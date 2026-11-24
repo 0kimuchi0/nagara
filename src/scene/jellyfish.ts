@@ -7,6 +7,17 @@ const Y_MIN = 0.1;
 const Y_MAX = 0.7;
 /** 傘の開閉周期 (秒) */
 const PERIOD = 3;
+/** 1 周期のうち、傘を閉じるのに使う割合。残りでゆっくり開く */
+export const CONTRACT = 0.3;
+/** 閉じる間に上へ進む速さ (px/s、傘の大きさに比例) */
+const THRUST = 28;
+
+const ease = (x: number): number => 0.5 - 0.5 * Math.cos(Math.PI * x);
+/** 周期内の位置 c (0..1、範囲外は折り返す) → 傘の閉じ具合 0..1 */
+export function pulseCurve(c: number): number {
+  const u = c - Math.floor(c);
+  return u < CONTRACT ? ease(u / CONTRACT) : 1 - ease((u - CONTRACT) / (1 - CONTRACT));
+}
 /** 拍で加える上向き速度 (px/s) と、その減衰の時定数 (秒) */
 const KICK = 130;
 const KICK_TAU = 0.8;
@@ -148,11 +159,15 @@ export class Jellyfish implements SceneElement {
       j.kick *= Math.exp(-dt / KICK_TAU);
 
       j.phase += (step * Math.PI * 2) / PERIOD;
-      const base = 0.5 - 0.5 * Math.cos(j.phase);
-      j.pulse = clamp(base * 0.5 + j.squeeze, 0, 1);
+      const cycle = j.phase / (Math.PI * 2);
+      const base = pulseCurve(cycle);
+      j.pulse = clamp(base + j.squeeze * (1 - base), 0, 1);
+      // 閉じている最中だけ上へ押し出す
+      const u = cycle - Math.floor(cycle);
+      const thrust = u < CONTRACT ? THRUST * j.size * Math.sin((Math.PI * u) / CONTRACT) * speed : 0;
 
       // ゆるい上下の漂い (拍の kick は上向き)
-      const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick - (j.y - j.homeY) * HOME_SPRING;
+      const vy = Math.sin(this.time * 0.6 + j.driftPhase) * j.driftAmp - j.kick - thrust - (j.y - j.homeY) * HOME_SPRING;
       j.x += j.vx * step;
       j.y += vy * dt;
       if (j.x < 0) {

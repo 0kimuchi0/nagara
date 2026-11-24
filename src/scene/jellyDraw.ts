@@ -46,8 +46,13 @@ export function drawJelly(
   tint: RGB,
   glow: number,
 ): void {
-  const w = p.unit * (1.1 - 0.3 * p.pulse); // 傘の半幅
-  const h = p.unit * (0.75 + 0.3 * p.pulse); // 傘の高さ
+  // 開くと平たく広がり、閉じると幅が狭く背が高くなる
+  const w = p.unit * (1.2 - 0.5 * p.pulse); // 傘の半幅 (最も膨らんだ所)
+  const h = p.unit * (0.62 + 0.5 * p.pulse); // 傘の高さ
+  // 閉じると縁が内側へ巻き込み、少し下に下がる
+  const curl = p.pulse;
+  const rimHalf = w * (1 - 0.32 * curl); // 縁の半幅
+  const rimY = h * 0.18 * curl; // 縁の高さ
   // 進行方向へ少し傾ける (横 30px/s で約 0.12 rad)
   const tilt = Math.max(-0.25, Math.min(0.25, p.velX * 0.004));
   // なびき: 触手の先は動きと反対側へ流れる
@@ -74,16 +79,17 @@ export function drawJelly(
   ctx.lineCap = "round";
   for (let i = 0; i < MARGINAL; i++) {
     const u = i / (MARGINAL - 1); // 0..1 縁に沿った位置
-    const rx = (u * 2 - 1) * w * 0.95;
+    const rx = (u * 2 - 1) * rimHalf * 0.95;
     const len = h * (2.4 + hash(i) * 1.8);
     const segs = 9;
     ctx.beginPath();
-    ctx.moveTo(rx, 0);
+    ctx.moveTo(rx, rimY);
     for (let k = 1; k <= segs; k++) {
       const t = k / segs;
       const wave = Math.sin(time * 1.8 + i * 0.7 - t * 4) * w * 0.12 * t;
-      // 先端ほど遅れてなびく (t^2)
-      ctx.lineTo(rx * (1 - 0.15 * t) + wave + trailX * t * t, len * t + trailY * t * t);
+      // 閉じるとすぼまり、開くと少し広がる。先端ほど遅れてなびく (t^2)
+      const spread = 1 - (0.15 + 0.35 * curl) * t;
+      ctx.lineTo(rx * spread + wave + trailX * t * t, rimY + len * t + trailY * t * t);
     }
     ctx.lineWidth = 0.7;
     ctx.strokeStyle = rgba(bellColor, (0.18 + 0.25 * glow) * (1 - 0.3 * hash(i + 50)));
@@ -125,14 +131,20 @@ export function drawJelly(
   const rim = (path: CanvasRenderingContext2D, scale: number): void => {
     const W = w * scale;
     const H = h * scale;
-    path.moveTo(-W, 0);
-    path.bezierCurveTo(-W, -H * 1.25, W, -H * 1.25, W, 0);
+    const R = rimHalf * scale;
+    const Y = rimY * scale;
+    // 左の縁 → 横に膨らむ肩 → 頂点 → 右の縁
+    path.moveTo(-R, Y);
+    path.bezierCurveTo(-W * 1.05, Y - H * 0.35, -W * 0.8, -H, 0, -H);
+    path.bezierCurveTo(W * 0.8, -H, W * 1.05, Y - H * 0.35, R, Y);
     const steps = LOBES * 6;
     for (let s = 1; s <= steps; s++) {
       const u = 1 - (s / steps) * 2; // 1 → -1
       const lobe = Math.abs(Math.sin((s / steps) * Math.PI * LOBES));
       const ripple = Math.sin(p.phase * 2 + s * 0.4) * 0.03;
-      path.lineTo(u * W, H * (0.06 + 0.1 * lobe + ripple));
+      // 閉じると縁の中央がやや持ち上がり、すぼまった形になる
+      const lift = -H * 0.12 * curl * (1 - u * u);
+      path.lineTo(u * R, Y + lift + H * (0.06 + 0.1 * lobe + ripple));
     }
     path.closePath();
   };

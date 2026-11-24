@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../random";
-import { Jellyfish } from "./jellyfish";
+import { Jellyfish, pulseCurve, CONTRACT } from "./jellyfish";
 import type { Stimulus } from "./types";
 
 const silent: Stimulus = { low: 0, high: 0, volume: 0, beat: false, speed: 1 };
@@ -153,5 +153,39 @@ describe("Jellyfish trailing velocity", () => {
     j.update(DT, { ...silent, beat: true });
     run(j, 0.3);
     for (const b of internal.jellies) expect(b.velY).toBeLessThan(0);
+  });
+});
+
+describe("pulseCurve (fast close, slow open)", () => {
+  it("is 0 at the start, reaches 1 at the end of the contraction, and returns to 0", () => {
+    expect(pulseCurve(0)).toBeCloseTo(0);
+    expect(pulseCurve(CONTRACT)).toBeCloseTo(1);
+    expect(pulseCurve(0.999)).toBeLessThan(0.01);
+  });
+  it("closes faster than it opens", () => {
+    const closeRate = (pulseCurve(CONTRACT / 2 + 0.01) - pulseCurve(CONTRACT / 2 - 0.01)) / 0.02;
+    const mid = CONTRACT + (1 - CONTRACT) / 2;
+    const openRate = (pulseCurve(mid - 0.01) - pulseCurve(mid + 0.01)) / 0.02;
+    expect(closeRate).toBeGreaterThan(openRate * 1.5);
+  });
+  it("wraps around for any phase", () => {
+    expect(pulseCurve(1.25)).toBeCloseTo(pulseCurve(0.25));
+    expect(pulseCurve(-0.75)).toBeCloseTo(pulseCurve(0.25));
+  });
+});
+
+describe("Jellyfish visible pulsing", () => {
+  it("each bell fully opens and closes within one silent period", () => {
+    const j = new Jellyfish({ width: 1200, height: 800 }, mulberry32(5));
+    const lo = j.bodies.map(() => 1);
+    const hi = j.bodies.map(() => 0);
+    run(j, 3.2, silent, () =>
+      j.bodies.forEach((b, i) => {
+        lo[i] = Math.min(lo[i], b.pulse);
+        hi[i] = Math.max(hi[i], b.pulse);
+      }),
+    );
+    lo.forEach((v) => expect(v).toBeLessThan(0.1));
+    hi.forEach((v) => expect(v).toBeGreaterThan(0.9));
   });
 });
