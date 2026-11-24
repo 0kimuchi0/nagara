@@ -5,6 +5,8 @@ import { mulberry32 } from './random'
 import { Bubbles } from './scene/bubbles'
 import { BubbleStream } from './scene/bubbleStream'
 import { WaterVolume } from './scene/waterVolume'
+import { drawBlurred } from './scene/compose'
+import { Grain } from './scene/grain'
 import { Caustics } from './scene/caustics'
 import { WaterSurface } from './scene/surface'
 import { Floor } from './scene/floor'
@@ -16,6 +18,10 @@ import type { Bounds, SceneElement, Stimulus } from './scene/types'
 import { setupUI } from './ui'
 
 const MAX_DT = 0.1
+/** 奥の景色のぼかしの強さ (縮小した層の px)。手前にピントが合った写真のように見せる */
+const FAR_BLUR = 1.2
+/** 奥の景色を描く層の解像度 (画面に対する比率)。半分にしてぼかしを軽くし、拡大でも少しぼける */
+const FAR_SCALE = 0.5
 const ATTACK = 0.08
 const RELEASE = 0.4
 
@@ -42,6 +48,12 @@ export function startApp(canvas: HTMLCanvasElement): void {
   const override = parseHourOverride(window.location.search)
   const rng = mulberry32(Date.now())
 
+  // 奥の景色を縮小した層に描き、別の層へぼかして写してから、拡大して重ねる
+  const farCanvas = document.createElement('canvas')
+  const farCtx = farCanvas.getContext('2d')
+  const blurCanvas = document.createElement('canvas')
+  const blurCtx = blurCanvas.getContext('2d')
+
   let bounds: Bounds = { width: window.innerWidth, height: window.innerHeight }
   let dpr = 1
   const applySize = () => {
@@ -49,6 +61,10 @@ export function startApp(canvas: HTMLCanvasElement): void {
     bounds = { width: window.innerWidth, height: window.innerHeight }
     canvas.width = Math.max(1, Math.round(bounds.width * dpr))
     canvas.height = Math.max(1, Math.round(bounds.height * dpr))
+    farCanvas.width = Math.max(1, Math.round(canvas.width * FAR_SCALE))
+    farCanvas.height = Math.max(1, Math.round(canvas.height * FAR_SCALE))
+    blurCanvas.width = farCanvas.width
+    blurCanvas.height = farCanvas.height
   }
   applySize()
 
@@ -60,11 +76,16 @@ export function startApp(canvas: HTMLCanvasElement): void {
   const bubbles = new Bubbles(bounds, rng)
   const stream = new BubbleStream(bounds, rng)
   const water = new WaterVolume(bounds, rng)
+  const grain = new Grain(bounds, rng)
   const caustics = new Caustics(bounds, rng)
   const surface = new WaterSurface(bounds, rng)
-  const elements: SceneElement[] = [water, rays, surface, caustics, particles, jellyfish, floor, plants, bubbles, stream]
-  // 光の筋の中を漂う塵だけがきらめく
-  particles.setLight((x, y) => rays.coverage(x, y))
+  const elements: SceneElement[] = [water, rays, surface, caustics, particles, jellyfish, floor, plants, bubbles, stream, grain]
+  // 光の筋の中を漂う塵、水草、石、海月が照らされる
+  const sunlight = (x: number, y: number) => rays.coverage(x, y)
+  particles.setLight(sunlight)
+  plants.setLight(sunlight)
+  floor.setLight(sunlight)
+  jellyfish.setLight(sunlight)
   window.addEventListener('resize', () => {
     applySize()
     for (const e of elements) e.resize(bounds)
@@ -122,13 +143,30 @@ export function startApp(canvas: HTMLCanvasElement): void {
     grad.addColorStop(1, `rgb(${br | 0},${bg | 0},${bb | 0})`)
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, bounds.width, bounds.height)
-    // 奥から手前へ：光の筋・水面 → 奥の粒・床・水草 → 海月 → 手前の床・水底の光・水草 → 泡 → 手前の粒 → 周辺減光
-    water.draw(ctx, lighting)
+    // 奥の景色 (水・奥の粒・床・水草) は別の層に描き、ぼかして重ねる (被写界深度)
+    const far = farCtx ?? ctx
+    if (farCtx) {
+      farCtx.setTransform(1, 0, 0, 1, 0, 0)
+      farCtx.clearRect(0, 0, farCanvas.width, farCanvas.height)
+      farCtx.setTransform(dpr * FAR_SCALE, 0, 0, dpr * FAR_SCALE, 0, 0)
+    }
+    water.draw(far, lighting)
+    particles.drawLayer(far, lighting, 'far')
+    floor.drawLayer(far, lighting, 'far')
+    plants.drawLayer(far, lighting, 'far')
+    if (farCtx) {
+      if (blurCtx) {
+        blurCtx.setTransform(1, 0, 0, 1, 0, 0)
+        blurCtx.clearRect(0, 0, blurCanvas.width, blurCanvas.height)
+        drawBlurred(blurCtx, farCanvas, FAR_BLUR * dpr, blurCanvas.width, blurCanvas.height)
+        ctx.drawImage(blurCanvas, 0, 0, bounds.width, bounds.height)
+      } else {
+        ctx.drawImage(farCanvas, 0, 0, bounds.width, bounds.height)
+      }
+    }
+    // 手前へ：光の筋・水面 → 海月 → 手前の床・水底の光・水草 → 泡 → 手前の粒 → 周辺減光 → 粒状感
     rays.draw(ctx, lighting)
     surface.draw(ctx, lighting)
-    particles.drawLayer(ctx, lighting, 'far')
-    floor.drawLayer(ctx, lighting, 'far')
-    plants.drawLayer(ctx, lighting, 'far')
     jellyfish.draw(ctx, lighting)
     floor.drawLayer(ctx, lighting, 'near')
     caustics.drawFloor(ctx, lighting)
@@ -137,6 +175,7 @@ export function startApp(canvas: HTMLCanvasElement): void {
     stream.draw(ctx, lighting)
     particles.drawLayer(ctx, lighting, 'near')
     drawVignette(ctx, bounds)
+    grain.draw(ctx, lighting)
   }
   requestAnimationFrame(frame)
 }
