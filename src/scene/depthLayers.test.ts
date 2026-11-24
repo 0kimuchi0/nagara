@@ -88,3 +88,43 @@ describe("Jellyfish depth", () => {
     expect(xs).toEqual(byDepth.map((b) => b.x));
   });
 });
+
+describe("Plant species", () => {
+  it("mixes ribbon, stem and sword plants, and every species draws something finite", () => {
+    const p = new Plants({ width: 1600, height: 900 }, mulberry32(31));
+    const kinds = new Set(p.kinds);
+    expect(kinds.size).toBe(3);
+    const { ctx, calls } = stubCtx();
+    p.draw(ctx, DAY);
+    for (const c of calls) for (const a of c.args) if (typeof a === "number") expect(Number.isFinite(a)).toBe(true);
+    expect(fills(calls)).toBeGreaterThan(p.count); // 葉や帯を塗っている
+  });
+  it("sword plants are lower than ribbon plants on average", () => {
+    const p = new Plants({ width: 2400, height: 900 }, mulberry32(32));
+    const hs = (k: string) => p.stalks.filter((_, i) => p.kinds[i] === k).map((s) => s.height / Math.max(0.3, s.depth));
+    expect(mean(hs("sword"))).toBeLessThan(mean(hs("ribbon")));
+  });
+});
+
+describe("Stones and wood", () => {
+  it("rock outlines stay within their box and rise to at most their height", async () => {
+    const { rockTop } = await import("./floorDraw");
+    const f = new Floor({ width: 1600, height: 900 }, mulberry32(41));
+    for (const s of f.shapes.filter((x) => x.kind === "rock")) {
+      for (let k = 0; k <= 20; k++) {
+        const y = rockTop(s.h, s.base, s.form, k / 20);
+        expect(y).toBeGreaterThanOrEqual(s.base - s.h - 1e-6);
+        expect(y).toBeLessThanOrEqual(s.base);
+      }
+    }
+  });
+  it("draws rocks, wood and gravel with finite numbers in both layers", () => {
+    const f = new Floor({ width: 1600, height: 900 }, mulberry32(42));
+    for (const l of [DAY, NIGHT]) {
+      const { ctx, calls } = stubCtx();
+      f.draw(ctx, l);
+      for (const c of calls) for (const a of c.args) if (typeof a === "number") expect(Number.isFinite(a)).toBe(true);
+      expect(fills(calls)).toBeGreaterThan(f.shapes.length + 50); // 石・流木・小石
+    }
+  });
+});

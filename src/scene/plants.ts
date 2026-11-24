@@ -2,8 +2,9 @@ import type { Lighting } from "../palette";
 import { smooth } from "../audio/analysis";
 import type { Bounds, SceneElement, Stimulus } from "./types";
 import { hazed, layerOf, scaleOf, type Layer } from "./depth";
+import { drawRibbon, drawStem, drawSword, type PlantKind, type Spine } from "./plantDraw";
+import type { RGB } from "../palette";
 
-const SEGMENTS = 5;
 const SPACING = 40;
 
 interface Plant {
@@ -16,7 +17,13 @@ interface Plant {
   width: number;
   /** 0 = 奥, 1 = 手前 */
   depth: number;
+  kind: PlantKind;
+  /** 見た目のばらつき用 0..1 */
+  seed: number;
 }
+
+/** 種類ごとの高さの倍率 (剣状の葉は低く広がる) */
+const KIND_HEIGHT: Record<PlantKind, number> = { ribbon: 1.15, stem: 0.8, sword: 0.5 };
 
 /** 奥の株ほど床の奥 (画面ではやや上) に生える */
 const FLOOR_DEPTH = 0.05;
@@ -54,12 +61,23 @@ export class Plants implements SceneElement {
         phase: this.rng() * Math.PI * 2,
         width: 3 + this.rng() * 4,
         depth: this.rng(),
+        ...this.pickKind(),
       });
     }
   }
 
+  private pickKind(): { kind: PlantKind; seed: number } {
+    const r = this.rng();
+    const kind: PlantKind = r < 0.5 ? "ribbon" : r < 0.8 ? "stem" : "sword";
+    return { kind, seed: this.rng() };
+  }
+
+  get kinds(): ReadonlyArray<PlantKind> {
+    return this.plants.map((p) => p.kind);
+  }
+
   private heightOf(p: Plant): number {
-    return p.nheight * this.bounds.height * scaleOf(p.depth);
+    return p.nheight * this.bounds.height * scaleOf(p.depth) * KIND_HEIGHT[p.kind];
   }
 
   private widthOf(p: Plant): number {
@@ -104,30 +122,37 @@ export class Plants implements SceneElement {
 
   drawLayer(ctx: CanvasRenderingContext2D, l: Lighting, layer: Layer): void {
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     // 奥から順に描く
     const order = this.plants.filter((p) => layerOf(p.depth) === layer).sort((a, b) => a.depth - b.depth);
     for (const p of order) {
       const px = p.nx * this.bounds.width;
       const ph = this.heightOf(p);
       const base = this.baseOf(p);
-      const shade = (0.75 + 0.25 * Math.sin(p.phase)) * (0.85 + 0.25 * p.depth);
-      const lit: [number, number, number] = [
-        Math.min(255, l.plant[0] * shade),
-        Math.min(255, l.plant[1] * shade),
-        Math.min(255, l.plant[2] * shade),
-      ];
-      const [r, g, b] = hazed(lit, l, (base - ph * 0.5) / this.bounds.height, p.depth);
-      ctx.strokeStyle = `rgba(${r},${g},${b},${(0.55 + 0.35 * p.depth).toFixed(3)})`;
-      const w = this.widthOf(p);
-      for (let k = 0; k < SEGMENTS; k++) {
-        const t0 = k / SEGMENTS;
-        const t1 = (k + 1) / SEGMENTS;
-        ctx.lineWidth = w * (1 - t0 * 0.8);
-        ctx.beginPath();
-        ctx.moveTo(px + this.offsetAt(p, t0), base - ph * t0);
-        ctx.lineTo(px + this.offsetAt(p, t1), base - ph * t1);
-        ctx.stroke();
-      }
+      const yMid = (base - ph * 0.5) / this.bounds.height;
+      const shade = (0.8 + 0.2 * Math.sin(p.phase)) * (0.85 + 0.25 * p.depth);
+      const tone = this.toneOf(p, l.plant);
+      const lit: RGB = [Math.min(255, tone[0] * shade), Math.min(255, tone[1] * shade), Math.min(255, tone[2] * shade)];
+      const color = hazed(lit, l, yMid, p.depth);
+      const tip = hazed(this.tipOf(p, lit), l, yMid, p.depth);
+      const look = { color, tip, alpha: 0.6 + 0.35 * p.depth, width: this.widthOf(p) * 1.6 };
+      const spine: Spine = (t) => [px + this.offsetAt(p, t), base - ph * t];
+      if (p.kind === "ribbon") drawRibbon(ctx, spine, look);
+      else if (p.kind === "stem") drawStem(ctx, spine, look, this.time * p.freq + p.phase);
+      else drawSword(ctx, [px, base], ph, look, this.offsetAt(p, 1) / Math.max(1, ph), p.seed);
     }
+  }
+
+  /** 種類ごとの基本の色合い (照明の水草色を少しずらす) */
+  private toneOf(p: Plant, c: RGB): RGB {
+    if (p.kind === "stem") return [c[0] * 1.1 + 12, c[1] * 1.02, c[2] * 0.85]; // 黄緑寄り
+    if (p.kind === "sword") return [c[0] * 0.8, c[1] * 0.92, c[2] * 0.9]; // 深い緑
+    return c;
+  }
+
+  /** 先端の色。有茎草は赤み、それ以外は明るく。明るさは照明に比例させ、夜に浮かないようにする */
+  private tipOf(p: Plant, c: RGB): RGB {
+    if (p.kind === "stem") return [Math.min(255, c[0] * 1.7 + 20), c[1] * 0.75, c[2] * 0.8];
+    return [Math.min(255, c[0] * 1.15), Math.min(255, c[1] * 1.15), Math.min(255, c[2] * 1.1)];
   }
 }
